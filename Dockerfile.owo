@@ -1,0 +1,14 @@
+FROM golang:latest
+
+WORKDIR /go/server
+
+COPY go.mod go.sum /go/server/
+
+RUN go env -w GOPROXY=https://goproxy.cn,direct \
+    && go mod download -x
+
+COPY ./ /go/server
+
+RUN go build -o owo .
+
+ENTRYPOINT ["/go/server/owo"]
