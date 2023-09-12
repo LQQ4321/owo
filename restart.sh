@@ -6,7 +6,6 @@
 docker stop owo
 docker rm owo
 docker rmi owo-server
-# docker build -t owo-server -f Dockerfile.owo .
 chmod u+x ./owoInit.sh
 ./owoInit.sh
 docker ps

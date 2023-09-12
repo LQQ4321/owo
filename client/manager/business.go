@@ -23,6 +23,8 @@ func ManagerInit(loggerInstance *zap.SugaredLogger) {
 
 	jsonFuncList = make([]jsonFunc, 0)
 	jsonFuncList = append(jsonFuncList, managerOperate)
+	jsonFuncList = append(jsonFuncList, createANewContest)
+	jsonFuncList = append(jsonFuncList, deleteAContest)
 
 	formFuncList = make([]formFunc, 0)
 }
@@ -30,16 +32,8 @@ func ManagerInit(loggerInstance *zap.SugaredLogger) {
 var (
 	jsonRequestList = []string{
 		"managerOperate",
-		"requestInfoList",
 		"createANewContest",
 		"deleteAContest",
-		"changeInfoNotFile",
-		"createANewProblem",
-		"deleteAProblem",
-		"aboutPermission",
-		"downloadFiles",
-		"sendNews",
-		"requestContestInfoList",
 	}
 	formRequestList = []string{
 		"addUsersFromFile",
@@ -60,7 +54,6 @@ func JsonRequest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	logger.Infoln(request.RequestType)
 	for i, f := range jsonFuncList {
 		if jsonRequestList[i] == request.RequestType {
 			f(request.Info, c)
