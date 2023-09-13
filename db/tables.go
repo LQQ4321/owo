@@ -1,6 +1,10 @@
 package db
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/LQQ4321/owo/config"
+)
 
 var (
 	TableId int //比赛的数据表对应的编号
@@ -37,7 +41,7 @@ type Problems struct {
 }
 
 func (Problems) TableName() string {
-	return "lqq" + strconv.Itoa(TableId) + "_problems"
+	return config.TABLE_PREFIX + strconv.Itoa(TableId) + config.PROBLEM_TABLE_SUFFIX
 }
 
 type Users struct {
@@ -51,7 +55,7 @@ type Users struct {
 }
 
 func (Users) TableName() string {
-	return "lqq" + strconv.Itoa(TableId) + "_users"
+	return config.TABLE_PREFIX + strconv.Itoa(TableId) + config.USER_TABLE_SUFFIX
 }
 
 type Submits struct {
@@ -67,7 +71,7 @@ type Submits struct {
 }
 
 func (Submits) TableName() string {
-	return "lqq" + strconv.Itoa(TableId) + "_submits"
+	return config.TABLE_PREFIX + strconv.Itoa(TableId) + config.SUBMIT_TABLE_SUFFIX
 }
 
 type News struct {
@@ -79,5 +83,5 @@ type News struct {
 }
 
 func (News) TableName() string {
-	return "lqq" + strconv.Itoa(TableId) + "_news"
+	return config.TABLE_PREFIX + strconv.Itoa(TableId) + config.NEW_TABLE_SUFFIX
 }

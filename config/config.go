@@ -15,12 +15,22 @@ const (
 
 // 文件路径配置
 const (
-	SHARE_JUDGER = "files/share_judger/"
-	ALL_CONTEST  = "files/allContest/"
+	SHARE_JUDGER     = "files/share_judger/"
+	ALL_CONTEST      = "files/allContest/"
+	USER_SUBMIT_PATH = "submit" //选手提交的代码在submit目录下
 )
 
 // 响应前端的状态
 const (
 	FAIL    = "fail"
 	SUCCEED = "succeed"
+)
+
+// 数据表配置
+const (
+	TABLE_PREFIX         = "lqq" //好像MySQL的表名不能使数字开头，所以加上一个前缀
+	PROBLEM_TABLE_SUFFIX = "_probelms"
+	USER_TABLE_SUFFIX    = "_users"
+	NEW_TABLE_SUFFIX     = "_news"
+	SUBMIT_TABLE_SUFFIX  = "_submits"
 )

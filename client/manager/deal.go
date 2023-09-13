@@ -2,6 +2,7 @@ package manager
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -149,6 +150,8 @@ func createANewContest(info []string, c *gin.Context) {
 		} else {
 			logger.Errorln(result.Error)
 		}
+	} else {
+		logger.Errorln(fmt.Errorf("contest name really exists"))
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -166,33 +169,76 @@ func deleteAContest(info []string, c *gin.Context) {
 	if result.Error != nil {
 		logger.Errorln(result.Error)
 	} else {
-		// type Table struct {
-		// 	TableName string
-		// }
-		// var tables []Table
-		// query := `SELECT table_name FROM information_schema.tables
-		// WHERE table_schema = 'online_judge' AND table_name LIKE `
-		// query += "'%" + "lqq" + strconv.Itoa(contest.ID) + "%'"
-		// if err := DB.Raw(query).Scan(&tables).Error; err != nil {
-		// 	logger.Errorln(err)
-		// } else {
-		// 	for _, table := range tables {
-		// 		dropQuery := fmt.Sprintf("DROP TABLE `%s`", table.TableName)
-		// 		if err := DB.Exec(dropQuery).Error; err != nil {
-		// 			logger.Errorln(err)
-		// 			c.JSON(http.StatusOK, response)
-		// 			return
-		// 		}
-		// 	}
-		// 	result = DB.Model(&db.Contests{}).
-		// 		Where(&db.Contests{ContestName: info[0]}).
-		// 		Delete(&db.Contests{})
-		// 	if result.Error != nil {
-		// 		logger.Errorln(result.Error)
-		// 	} else {
-		// 		response.Status = config.SUCCEED
-		// 	}
-		// }
+		tablesSuffix := []string{config.PROBLEM_TABLE_SUFFIX, config.USER_TABLE_SUFFIX,
+			config.SUBMIT_TABLE_SUFFIX, config.NEW_TABLE_SUFFIX}
+		tablePrefix := config.TABLE_PREFIX + strconv.Itoa(contest.ID)
+		for _, tableSuffix := range tablesSuffix {
+			if err := DB.Exec("DROP TABLE IF EXISTS " + tablePrefix + tableSuffix).Error; err != nil {
+				logger.Errorln(err)
+				c.JSON(http.StatusOK, response)
+				return
+			}
+		}
+		result = DB.Model(&db.Contests{}).
+			Where(&db.Contests{ContestName: info[0]}).
+			Delete(&db.Contests{})
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			contestDir := config.ALL_CONTEST + strconv.Itoa(contest.ID)
+			if err := os.RemoveAll(contestDir); err != nil {
+				logger.Errorln(err)
+			} else {
+				response.Status = config.SUCCEED
+			}
+		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"广西大学第一届校赛","两数之和"}
+func createANewProblem(info []string, c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	var contest db.Contests
+	result := DB.Model(&db.Contests{}).
+		Where(&db.Contests{ContestName: info[0]}).
+		First(&contest)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	} else {
+		problemTableName := config.TABLE_PREFIX +
+			strconv.Itoa(contest.ID) + config.PROBLEM_TABLE_SUFFIX
+		result = DB.Table(problemTableName).
+			Where(&db.Problems{ProblemName: info[1]}).
+			First(&db.Problems{})
+		if result.Error != nil {
+			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				var problem db.Problems
+				problem.ProblemName = info[1]
+				result = DB.Table(problemTableName).
+					Create(&problem)
+				if result.Error != nil {
+					logger.Errorln(result.Error)
+				} else {
+					problemDir := config.ALL_CONTEST +
+						strconv.Itoa(contest.ID) + "/" +
+						strconv.Itoa(problem.ID) + "/" +
+						config.USER_SUBMIT_PATH
+					if err := os.MkdirAll(problemDir, 0755); err != nil {
+						logger.Errorln(err)
+					} else {
+						response.Status = config.SUCCEED
+					}
+				}
+			} else {
+				logger.Errorln(result.Error)
+			}
+		} else {
+			logger.Error(fmt.Errorf("probem name really exists"))
+		}
 	}
 	c.JSON(http.StatusOK, response)
 }
