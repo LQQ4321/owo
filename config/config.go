@@ -29,7 +29,7 @@ const (
 // 数据表配置
 const (
 	TABLE_PREFIX         = "lqq" //好像MySQL的表名不能使数字开头，所以加上一个前缀
-	PROBLEM_TABLE_SUFFIX = "_probelms"
+	PROBLEM_TABLE_SUFFIX = "_problems"
 	USER_TABLE_SUFFIX    = "_users"
 	NEW_TABLE_SUFFIX     = "_news"
 	SUBMIT_TABLE_SUFFIX  = "_submits"
