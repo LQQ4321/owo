@@ -15,9 +15,12 @@ const (
 
 // 文件路径配置
 const (
-	SHARE_JUDGER     = "files/share_judger/"
-	ALL_CONTEST      = "files/allContest/"
-	USER_SUBMIT_PATH = "submit" //选手提交的代码在submit目录下
+	SHARE_JUDGER      = "files/share_judger/"
+	ALL_CONTEST       = "files/allContest/"
+	USER_SUBMIT_PATH  = "submit" //选手提交的代码在submit目录下
+	PDF_FILE_NAME     = "problem.pdf"
+	TEST_FILE_NAME    = "test"
+	EXAMPLE_FILE_NAME = "example"
 )
 
 // 响应前端的状态

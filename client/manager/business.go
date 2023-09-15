@@ -32,7 +32,8 @@ func ManagerInit(loggerInstance *zap.SugaredLogger) {
 
 	formFuncList = make([]formFunc, 0)
 	formFuncList = append(formFuncList, addUsersFromFile)
-
+	formFuncList = append(formFuncList, uploadPdfFile)
+	formFuncList = append(formFuncList, uploadIoFiles)
 }
 
 var (
@@ -47,6 +48,8 @@ var (
 	}
 	formRequestList = []string{
 		"addUsersFromFile",
+		"uploadPdfFile",
+		"uploadIoFiles",
 	}
 )
 

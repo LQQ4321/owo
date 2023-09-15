@@ -1,16 +1,21 @@
 package manager
 
 import (
+	"archive/zip"
 	"bufio"
 	"errors"
 	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
 	"github.com/LQQ4321/owo/config"
 	"github.com/LQQ4321/owo/db"
+	"github.com/LQQ4321/owo/judger"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -483,4 +488,323 @@ func addUsersFromFile(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, response)
+}
+
+// {"contestName","problemName","file"}
+func uploadPdfFile(c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	contestName := c.Request.FormValue("contestName")
+	problemName := c.Request.FormValue("problemName")
+	file, err := c.FormFile("file")
+	if err != nil {
+		logger.Errorln(err)
+	} else {
+		var contest db.Contests
+		result := DB.Model(&db.Contests{}).
+			Where(&db.Contests{ContestName: contestName}).
+			First(&contest)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			db.TableId = contest.ID
+			var problem db.Problems
+			result := DB.Model(&db.Problems{}).
+				Where(&db.Problems{ProblemName: problemName}).
+				First(&problem)
+			if result.Error != nil {
+				logger.Errorln(result.Error)
+			} else {
+				pdfPath := config.ALL_CONTEST +
+					strconv.Itoa(contest.ID) + "/" +
+					strconv.Itoa(problem.ID) + "/" +
+					config.PDF_FILE_NAME
+				if err := c.SaveUploadedFile(file, pdfPath); err != nil {
+					logger.Errorln(err)
+				}
+				if !problem.Pdf {
+					err := DB.Transaction(func(tx *gorm.DB) error {
+						problem.Pdf = true
+						return tx.Model(&db.Problems{}).Save(&problem).Error
+					})
+					if err != nil {
+						logger.Errorln(err)
+					} else {
+						response.Status = config.SUCCEED
+					}
+				} else {
+					response.Status = config.SUCCEED
+				}
+			}
+		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"contestName","problemName","file"}
+func uploadIoFiles(c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	contestName := c.Request.FormValue("contestName")
+	problemName := c.Request.FormValue("problemName")
+	file, err := c.FormFile("file")
+	if err != nil {
+		logger.Errorln(err)
+	} else {
+		var contest db.Contests
+		result := DB.Model(&db.Contests{}).
+			Where(&db.Contests{ContestName: contestName}).
+			First(&contest)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			db.TableId = contest.ID
+			var problem db.Problems
+			result := DB.Model(&db.Problems{}).
+				Where(&db.Problems{ProblemName: problemName}).
+				First(&problem)
+			if result.Error != nil {
+				logger.Errorln(result.Error)
+			} else {
+				filePath := config.ALL_CONTEST +
+					strconv.Itoa(contest.ID) + "/" +
+					strconv.Itoa(problem.ID)
+				ioPath := filePath + "/" + file.Filename
+				if err := c.SaveUploadedFile(file, ioPath); err != nil {
+					logger.Errorln(err)
+				} else {
+					// 删除除submit和根目录以外的所有文件夹,
+					// 为了接下来解压zip文件后，方便寻找解压后的目录名
+					dirs := make([]string, 0)
+					err := filepath.Walk(filePath,
+						func(path string, info fs.FileInfo, err error) error {
+							if err != nil {
+								return err
+							}
+							if info.IsDir() {
+								if info.Name() != config.USER_SUBMIT_PATH && path != filePath {
+									dirs = append(dirs, filepath.Join(filePath, info.Name()))
+								}
+								if path == filePath {
+									return nil
+								}
+								return filepath.SkipDir //跳出当前目录，不再对当前目录进行递归
+							}
+							return nil
+						})
+					if err != nil {
+						logger.Errorln(err)
+					} else {
+						for _, v := range dirs {
+							if err := os.RemoveAll(v); err != nil {
+								logger.Errorln(err)
+								c.JSON(http.StatusOK, response)
+								return
+							}
+						}
+						if err := Unzip(ioPath, filePath); err != nil {
+							logger.Errorln(err)
+						} else {
+							// 寻找解压后的目录名,(解压前的zip文件和解压后得到的目录，名称可能不一样)
+							var ioDir string
+							err := filepath.Walk(filePath,
+								func(path string, info fs.FileInfo, err error) error {
+									if err != nil {
+										return err
+									}
+									if info.IsDir() {
+										if info.Name() != config.USER_SUBMIT_PATH && path != filePath {
+											ioDir = info.Name()
+										}
+										if path != filePath {
+											return filepath.SkipDir
+										}
+									}
+									return nil
+								})
+							if err != nil {
+								logger.Errorln(err)
+							} else {
+								testDir := filePath + "/" + ioDir + "/" + config.TEST_FILE_NAME + "/"
+								exampleDir := filePath + "/" + ioDir + "/" + config.EXAMPLE_FILE_NAME + "/"
+								testMap, err := visit(testDir)
+								if err != nil {
+									logger.Errorln(err)
+									c.JSON(http.StatusOK, response)
+									return
+								}
+								testList := make([]string, 0)
+								for key, value := range testMap {
+									if value[0] == "null" || value[1] == "null" {
+										continue
+									}
+									list := []string{key, testDir + value[0], testDir + value[1]}
+									// 将windows格式的txt文件转为linux格式的txt文件
+									err = judger.FileConversion(testDir+value[1], filePath+"/"+value[1])
+									if err != nil {
+										logger.Errorln(err)
+										c.JSON(http.StatusOK, response)
+										return
+									}
+									h := judger.GenerateHashValue(filePath + "/" + value[1])
+									if h == "" {
+										c.JSON(http.StatusOK, response)
+										return
+									}
+									list = append(list, h)
+									//id|inid_path|outid_path|hashValue#
+									testList = append(testList, strings.Join(list, "|"))
+								}
+								exampleMap, err := visit(exampleDir)
+								if err != nil {
+									logger.Errorln(err)
+									c.JSON(http.StatusOK, response)
+									return
+								}
+								exampleList := make([]string, 0)
+								for key, value := range exampleMap {
+									if value[0] == "null" || value[1] == "null" {
+										continue
+									}
+									list := []string{key, exampleDir + value[0], exampleDir + value[1]}
+									//id|inid_path|outid_path#
+									exampleList = append(exampleList, strings.Join(list, "|"))
+								}
+								err = cleanTempFile(filePath)
+								if err != nil {
+									logger.Errorln(err)
+									c.JSON(http.StatusOK, response)
+									return
+								}
+								problem.TestFiles = strings.Join(testList, "#")
+								problem.ExampleFiles = strings.Join(exampleList, "#")
+								err = DB.Transaction(func(tx *gorm.DB) error {
+									return tx.Model(&db.Problems{}).Save(&problem).Error
+								})
+								if err != nil {
+									logger.Errorln(err)
+								} else {
+									response.Status = config.SUCCEED
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// 清理文件格式从windows转linux过程中产生的中间out.txt文件
+func cleanTempFile(filePath string) error {
+	return filepath.Walk(filePath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() && path != filePath { //特判根目录
+			return filepath.SkipDir
+		}
+		if !info.IsDir() && info.Name() != config.PDF_FILE_NAME {
+			if err := os.Remove(filepath.Join(filePath, info.Name())); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+// 遍历test和example目录，获取in.txt和out.txt的文件名
+func visit(dirPath string) (map[string][]string, error) {
+	myMap := make(map[string][]string)
+	err := filepath.Walk(dirPath, func(path string, info fs.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if path == dirPath ||
+				info.Name() == config.TEST_FILE_NAME ||
+				info.Name() == config.EXAMPLE_FILE_NAME {
+				return nil
+			}
+			return filepath.SkipDir
+		} else {
+			if strings.Contains(info.Name(), ".txt") {
+				var start int
+				if strings.Contains(info.Name(), "out") {
+					start = 3
+				} else if strings.Contains(info.Name(), "in") {
+					start = 2
+				} else {
+					return nil
+				}
+				// rune好像是可以代表汉字的，但是最好还是不要包含汉字了
+				var id string
+				// out1.txt,id 是 1,"out"到"."之间最好只包含数字编号就好了
+				// 后续不应该吧id转为数字类型
+				for i, v := range info.Name() {
+					if i < start {
+						continue
+					}
+					if v == '.' {
+						break
+					}
+					id += string(v)
+				}
+				if _, ok := myMap[id]; !ok {
+					myMap[id] = []string{"null", "null"}
+				}
+				myMap[id][start-2] = info.Name()
+			}
+		}
+		return nil
+	})
+	return myMap, err
+}
+
+// 解压缩zip文件到指定路径
+func Unzip(zipFilePath, destination string) error {
+	r, err := zip.OpenReader(zipFilePath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+	// 遍历zip的每个文件/文件夹
+	for _, file := range r.File {
+		// 构建解压缩后的文件路径
+		// 我们这里应该是可以将第一个file看作为解压后的根目录的，
+		// 那么根目录的名称理论上我们就可以指定为我们想要的，代替掉原本的file.Name即可
+		// 后续可以优化一下这里，就不用专门去找解压后的目录名称了
+		extractedFilePath := filepath.Join(destination, file.Name)
+		if file.FileInfo().IsDir() {
+			err = os.MkdirAll(extractedFilePath, os.ModePerm)
+			if err != nil {
+				return err
+			}
+			continue
+		}
+		// 创建解压缩后的文件
+		extractedFile, err := os.Create(extractedFilePath)
+		if err != nil {
+			return err
+		}
+		defer extractedFile.Close()
+
+		// 打开zip中的文件
+		zippedFile, err := file.Open()
+		if err != nil {
+			return err
+		}
+		defer zippedFile.Close()
+		// 将zip文件中的内容复制到解压缩后的文件
+		_, err = io.Copy(extractedFile, zippedFile)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
