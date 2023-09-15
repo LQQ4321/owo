@@ -73,6 +73,9 @@ func managerOperate(info []string, c *gin.Context) {
 	} else if info[0] == "updatePassword" {
 		result := DB.Model(&db.Managers{}).
 			Where(&db.Managers{ManagerName: info[1]}).
+			// 这张表只有三个字段，所以可以用Updates，如果后续要扩展这个表的时候，
+			// 就应该先查找该表，从而获得原本的数据（此次不更新的字段），
+			// 然后再更改该变量，从而更新
 			Updates(&db.Managers{Password: info[2]})
 		if result.Error != nil {
 			logger.Errorln(result.Error)
@@ -120,21 +123,46 @@ func createANewContest(info []string, c *gin.Context) {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
-	result := DB.Where(&db.Contests{ContestName: info[0]}).First(&db.Contests{})
+	// 是不是First导致原本的数据消失了
+	result := DB.Model(&db.Contests{}).
+		Where(&db.Contests{ContestName: info[0]}).
+		First(&db.Contests{})
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-			var contest db.Contests
-			contest.ContestName = info[0]
-			contest.CreateTime = info[1]
-			contest.StartTime = info[1]
-			contest.EndTime = info[1]
-			contest.CreatorName = info[2]
-			result = DB.Create(&contest)
+			contest := db.Contests{
+				ContestName: info[0],
+				CreateTime:  info[1],
+				StartTime:   info[1],
+				EndTime:     info[1],
+				CreatorName: info[2],
+			}
+			result = DB.Model(&db.Contests{}).Create(&contest)
 			if result.Error != nil {
 				logger.Errorln(result.Error)
 			} else {
-				db.TableId = contest.ID
-				err := DB.AutoMigrate(&db.Users{}, &db.Problems{}, &db.Submits{}, &db.News{})
+				err := DB.Transaction(func(tx *gorm.DB) error {
+					err := tx.Table(db.GetTableName(contest.ID, config.USER_TABLE_SUFFIX)).
+						AutoMigrate(&db.Users{})
+					if err != nil {
+						return err
+					}
+					err = tx.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
+						AutoMigrate(&db.Problems{})
+					if err != nil {
+						return err
+					}
+					err = tx.Table(db.GetTableName(contest.ID, config.NEW_TABLE_SUFFIX)).
+						AutoMigrate(&db.News{})
+					if err != nil {
+						return err
+					}
+					err = tx.Table(db.GetTableName(contest.ID, config.SUBMIT_TABLE_SUFFIX)).
+						AutoMigrate(&db.Submits{})
+					if err != nil {
+						return err
+					}
+					return nil
+				})
 				if err != nil {
 					logger.Errorln(err)
 				} else {
@@ -176,10 +204,10 @@ func deleteAContest(info []string, c *gin.Context) {
 	} else {
 		tablesSuffix := []string{config.PROBLEM_TABLE_SUFFIX, config.USER_TABLE_SUFFIX,
 			config.SUBMIT_TABLE_SUFFIX, config.NEW_TABLE_SUFFIX}
-		tablePrefix := config.TABLE_PREFIX + strconv.Itoa(contest.ID)
 		err := DB.Transaction(func(tx *gorm.DB) error {
 			for _, tableSuffix := range tablesSuffix {
-				if err := tx.Exec("DROP TABLE IF EXISTS " + tablePrefix + tableSuffix).Error; err != nil {
+				if err := tx.Exec("DROP TABLE IF EXISTS " +
+					db.GetTableName(contest.ID, tableSuffix)).Error; err != nil {
 					return err
 				}
 			}
@@ -217,9 +245,7 @@ func createANewProblem(info []string, c *gin.Context) {
 	if result.Error != nil {
 		logger.Errorln(result.Error)
 	} else {
-		problemTableName := config.TABLE_PREFIX +
-			strconv.Itoa(contest.ID) + config.PROBLEM_TABLE_SUFFIX
-		result = DB.Table(problemTableName).
+		result = DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
 			Where(&db.Problems{ProblemName: info[1]}).
 			First(&db.Problems{})
 		if result.Error != nil {
@@ -227,7 +253,7 @@ func createANewProblem(info []string, c *gin.Context) {
 				err := DB.Transaction(func(tx *gorm.DB) error {
 					var problem db.Problems
 					problem.ProblemName = info[1]
-					result := tx.Table(problemTableName).
+					result := tx.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
 						Create(&problem)
 					if result.Error != nil {
 						return result.Error
@@ -270,15 +296,15 @@ func deleteAProblem(info []string, c *gin.Context) {
 		logger.Errorln(result.Error)
 	} else {
 		var problem db.Problems
-		db.TableId = contest.ID //试一下用Model，而不是Table
-		result = DB.Model(&db.Problems{}).
+		result = DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
 			Where(&db.Problems{ProblemName: info[1]}).
 			First(&problem)
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		} else {
 			err := DB.Transaction(func(tx *gorm.DB) error {
-				result := tx.Model(&db.Problems{}).Delete(&problem)
+				result := tx.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
+					Delete(&problem)
 				if result.Error != nil {
 					return result.Error
 				}
@@ -330,7 +356,7 @@ func requestContestList(info []string, c *gin.Context) {
 }
 
 // {"广西大学第一届校赛"}
-func requestProbelmList(info []string, c *gin.Context) {
+func requestProblemList(info []string, c *gin.Context) {
 	var response struct {
 		Status      string     `json:"status"`
 		ProblemList [][]string `json:"problemList"`
@@ -342,9 +368,9 @@ func requestProbelmList(info []string, c *gin.Context) {
 		First(&contest); err != nil {
 		logger.Errorln(err)
 	} else {
-		db.TableId = contest.ID
 		var problems []db.Problems
-		if err := DB.Model(&db.Problems{}).Find(&problems); err != nil {
+		if err := DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
+			Find(&problems); err != nil {
 			logger.Errorln(err)
 		} else {
 			for _, v := range problems {
@@ -437,9 +463,9 @@ func addUsersFromFile(c *gin.Context) {
 				First(&contest); result.Error != nil {
 				logger.Errorln(result.Error)
 			} else {
-				db.TableId = contest.ID
 				err := DB.Transaction(func(tx *gorm.DB) error {
-					deleteSql := "TRUNCATE TABLE " + db.Users{}.TableName()
+					deleteSql := "TRUNCATE TABLE " +
+						db.GetTableName(contest.ID, config.USER_TABLE_SUFFIX)
 					if result := tx.Exec(deleteSql); result.Error != nil {
 						return result.Error
 					}
@@ -472,7 +498,8 @@ func addUsersFromFile(c *gin.Context) {
 						})
 					}
 					err := DB.Transaction(func(tx *gorm.DB) error {
-						if result := tx.Model(&db.Users{}).
+						if result := tx.Table(
+							db.GetTableName(contest.ID, config.USER_TABLE_SUFFIX)).
 							Create(&users); result.Error != nil {
 							return result.Error
 						}
@@ -509,9 +536,8 @@ func uploadPdfFile(c *gin.Context) {
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		} else {
-			db.TableId = contest.ID
 			var problem db.Problems
-			result := DB.Model(&db.Problems{}).
+			result := DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
 				Where(&db.Problems{ProblemName: problemName}).
 				First(&problem)
 			if result.Error != nil {
@@ -527,7 +553,9 @@ func uploadPdfFile(c *gin.Context) {
 				if !problem.Pdf {
 					err := DB.Transaction(func(tx *gorm.DB) error {
 						problem.Pdf = true
-						return tx.Model(&db.Problems{}).Save(&problem).Error
+						return tx.Table(
+							db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
+							Save(&problem).Error
 					})
 					if err != nil {
 						logger.Errorln(err)
@@ -562,9 +590,9 @@ func uploadIoFiles(c *gin.Context) {
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		} else {
-			db.TableId = contest.ID
 			var problem db.Problems
-			result := DB.Model(&db.Problems{}).
+			result := DB.Table(
+				db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
 				Where(&db.Problems{ProblemName: problemName}).
 				First(&problem)
 			if result.Error != nil {
@@ -610,6 +638,8 @@ func uploadIoFiles(c *gin.Context) {
 							logger.Errorln(err)
 						} else {
 							// 寻找解压后的目录名,(解压前的zip文件和解压后得到的目录，名称可能不一样)
+							// 在windows上新建一个文件夹，取名为A，然后压缩，改名为B
+							// 那么在linux上解压前名为B，解压后名为A
 							var ioDir string
 							err := filepath.Walk(filePath,
 								func(path string, info fs.FileInfo, err error) error {
@@ -680,10 +710,14 @@ func uploadIoFiles(c *gin.Context) {
 									c.JSON(http.StatusOK, response)
 									return
 								}
+								// 下面的Save是全字段更新，所以该方法里面的结构体应该包含原本的数据，
+								// 不应该通过新建一个结构体变量的方式来更新数据行
 								problem.TestFiles = strings.Join(testList, "#")
 								problem.ExampleFiles = strings.Join(exampleList, "#")
 								err = DB.Transaction(func(tx *gorm.DB) error {
-									return tx.Model(&db.Problems{}).Save(&problem).Error
+									return tx.Table(
+										db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
+										Save(&problem).Error
 								})
 								if err != nil {
 									logger.Errorln(err)

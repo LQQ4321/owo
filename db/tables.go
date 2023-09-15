@@ -6,10 +6,6 @@ import (
 	"github.com/LQQ4321/owo/config"
 )
 
-var (
-	TableId int //比赛的数据表对应的编号
-)
-
 // 结构唯一
 type Contests struct {
 	ID          int    `gorm:primaryKey` //这里应该不算用到gorm(所以不用导入)，可以通过反射得到字符串
@@ -40,10 +36,6 @@ type Problems struct {
 	ExampleFiles string //题目的样例文件信息，各文件信息使用"|"分隔,例：编号|输入文件路径|输出文件路径
 }
 
-func (Problems) TableName() string {
-	return config.TABLE_PREFIX + strconv.Itoa(TableId) + config.PROBLEM_TABLE_SUFFIX
-}
-
 type Users struct {
 	ID            int    `gorm:"primaryKey"`
 	StudentNumber string //唯一
@@ -52,10 +44,6 @@ type Users struct {
 	Password      string
 	LoginTime     string
 	Status        string //该场比赛的题目状态,分割符使用"|",因为里面要包含时间，时间有分割符":"
-}
-
-func (Users) TableName() string {
-	return config.TABLE_PREFIX + strconv.Itoa(TableId) + config.USER_TABLE_SUFFIX
 }
 
 type Submits struct {
@@ -70,10 +58,6 @@ type Submits struct {
 	FileSize      string //单位KB
 }
 
-func (Submits) TableName() string {
-	return config.TABLE_PREFIX + strconv.Itoa(TableId) + config.SUBMIT_TABLE_SUFFIX
-}
-
 type News struct {
 	ID         int    `gorm:"primaryKey"`
 	IsManager  bool   //发送该条消息的人员类型，管理者或者选手,默认是false，也就是默认选手
@@ -82,6 +66,6 @@ type News struct {
 	SendTime   string //发送时间
 }
 
-func (News) TableName() string {
-	return config.TABLE_PREFIX + strconv.Itoa(TableId) + config.NEW_TABLE_SUFFIX
+func GetTableName(id int, tableSuffix string) string {
+	return config.TABLE_PREFIX + strconv.Itoa(id) + tableSuffix
 }
