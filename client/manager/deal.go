@@ -395,6 +395,124 @@ func requestProblemList(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// {"广西大学第一届校赛","ICPC-ACM 第五十九届","2023-10-10 11:00:00","2023-10-10 16:00:00"}
+func changeContestConfig(info []string, c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	result := DB.Model(&db.Contests{}).
+		Where(&db.Contests{ContestName: info[0]}).
+		Updates(&db.Contests{ContestName: info[1], //有些地方没有字段不包含在此次更新内，不知道这些字段会不会被默认值的覆盖掉
+			StartTime: info[2], EndTime: info[3]})
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	} else {
+		response.Status = config.SUCCEED
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"广西大学第一届校赛","两数之和","100","128","10"}
+func changeProblemConfig(info []string, c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	timeLimit, err := strconv.ParseInt(info[2], 10, 64)
+	if err != nil {
+		logger.Errorln(err)
+	}
+	memoryLimit, err := strconv.ParseInt(info[3], 10, 64)
+	if err != nil {
+		logger.Errorln(err)
+	}
+	submitFileLimit, err := strconv.ParseInt(info[4], 10, 64)
+	if err != nil {
+		logger.Errorln(err)
+	}
+	var contest db.Contests
+	result := DB.Model(&db.Contests{}).
+		Where(&db.Contests{ContestName: info[0]}).First(&contest)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	} else {
+		result = DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
+			Where(&db.Problems{ProblemName: info[1]}).
+			Updates(&db.Problems{TimeLimit: timeLimit,
+				MemoryLimit: memoryLimit, MaxFileLimit: submitFileLimit})
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			response.Status = config.SUCCEED
+		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"广西大学第一届校赛"}
+func downloadPlayerList(info []string, c *gin.Context) {
+	var response struct {
+		Status      string `json:"status"`
+		PlayersFile string `json:"playersFile"`
+	}
+	response.Status = config.FAIL
+	var contest db.Contests
+	result := DB.Model(&db.Contests{}).
+		Where(&db.Contests{ContestName: info[0]}).
+		First(&contest)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	} else {
+		var fileContent string
+		var users []db.Users
+		result = DB.
+			Table(db.GetTableName(contest.ID, config.USER_TABLE_SUFFIX)).
+			Find(&users)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			for _, v := range users {
+				list := make([]string, 4)
+				list[0] = v.StudentNumber
+				list[1] = v.StudentName
+				list[2] = v.SchoolName
+				list[3] = v.Password
+				fileContent += strings.Join(list, "\t") + "\n"
+			}
+			response.PlayersFile = fileContent
+			response.Status = config.SUCCEED
+		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"广西大学第一届校赛","managerName","text","sendTime"}
+func sendNews(info []string, c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	var contest db.Contests
+	result := DB.Model(&db.Contests{}).
+		Where(&db.Contests{ContestName: info[0]}).
+		First(&contest)
+	if result.Error != nil {
+		logger.Error(result.Error)
+	} else {
+		news := db.News{IsManager: true, Identifier: info[1],
+			Text: info[2], SendTime: info[3]}
+		result = DB.Table(db.GetTableName(contest.ID, config.NEW_TABLE_SUFFIX)).
+			Create(&news)
+		if result.Error != nil {
+			logger.Error(result.Error)
+		} else {
+			response.Status = config.SUCCEED
+		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
 // 测试没有赋值的成员，返回到前端后的值
 func requestTestNil(info []string, c *gin.Context) {
 	/*

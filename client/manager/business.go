@@ -29,6 +29,10 @@ func ManagerInit(loggerInstance *zap.SugaredLogger) {
 	jsonFuncList = append(jsonFuncList, deleteAProblem)
 	jsonFuncList = append(jsonFuncList, requestContestList)
 	jsonFuncList = append(jsonFuncList, requestProblemList)
+	jsonFuncList = append(jsonFuncList, changeContestConfig)
+	jsonFuncList = append(jsonFuncList, changeProblemConfig)
+	jsonFuncList = append(jsonFuncList, downloadPlayerList)
+	jsonFuncList = append(jsonFuncList, sendNews)
 
 	formFuncList = make([]formFunc, 0)
 	formFuncList = append(formFuncList, addUsersFromFile)
@@ -45,6 +49,10 @@ var (
 		"deleteAProblem",
 		"requestContestList",
 		"requestProblemList",
+		"changeContestConfig",
+		"changeProblemConfig",
+		"downloadPlayerList",
+		"sendNews",
 	}
 	formRequestList = []string{
 		"addUsersFromFile",
