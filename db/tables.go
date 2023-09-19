@@ -9,7 +9,7 @@ import (
 
 // 结构唯一
 type Contests struct {
-	ID          int    `gorm:primaryKey` //这里应该不算用到gorm(所以不用导入)，可以通过反射得到字符串
+	ID          int    `gorm:"primaryKey"` //这里应该不算用到gorm(所以不用导入)，可以通过反射得到字符串
 	ContestName string //比赛名称
 	CreatorName string //创造该场比赛的管理员
 	CreateTime  string //比赛创建时间
@@ -25,16 +25,20 @@ type Managers struct {
 
 // 结构相同，表名不同
 type Problems struct {
-	ID           int    `gorm:"primaryKey"`
-	ProblemName  string //题目名称
+	ID int `gorm:"primaryKey"`
+	//很少会改变的数据，前端只请求一次，如果管理员改变了它，那么选手可以重启程序来获取更新的数据
+	ProblemName string //题目名称
+	Pdf         bool   //题目是否上传了pdf文件
+	// 下面的字段前端虽然只需要用到一次，但是后端会经常用到，所以也可以缓存
 	TimeLimit    int64  //运行时间限制,ms
 	MemoryLimit  int64  //运行内存限制,MB
 	MaxFileLimit int64  //选手提交文件大小限制,KB
-	Pdf          bool   //题目是否上传了pdf文件
-	SubmitTotal  int64  //提交该题目的人数
-	SubmitAc     int64  //通过该题目的人数
 	TestFiles    string //题目的测试文件信息，各文件信息使用"|"分隔，例：编号|输入文件路径|输出文件路径|sha256
 	ExampleFiles string //题目的样例文件信息，各文件信息使用"|"分隔,例：编号|输入文件路径|输出文件路径
+	//比赛期间经常会改变的数据，需要缓存
+	SubmitTotal int64 //提交该题目的人数
+	SubmitAc    int64 //通过该题目的人数
+
 }
 
 type Users struct {
@@ -67,19 +71,27 @@ type News struct {
 	SendTime   string //发送时间
 }
 
-func GetTableName(id int, tableSuffix string) string {
-	return config.TABLE_PREFIX + strconv.Itoa(id) + tableSuffix
+// 第一个参数接收int和string类型的值
+func GetTableName(id interface{}, tableSuffix string) string {
+	if num, ok := id.(int); ok {
+		return config.TABLE_PREFIX + strconv.Itoa(num) + tableSuffix
+	}
+	return config.TABLE_PREFIX + id.(string) + tableSuffix
 }
 
 // 这里有必要缓存的数据是会经常改变而且有大量请求需求的数据
-var CacheMap map[string]ContestInfo = make(map[string]ContestInfo)
+var CacheMap map[string]ContestInfo = make(map[string]ContestInfo) //string(contestId) -> ContestInfo
 
-// 下面的成员别忘了初始化(所以上面的map的value到底要不要用指针*ContestInfo呀)
+// 下面的成员别忘了初始化(所以上面的map的value到底要不要用指针*ContestInfo呀,应该可以不用)
+// 为了方便，下面所有数据的查询都在一个协程中完成
 type ContestInfo struct {
-	// 因为LatestReqTime也涉及读写操作，所以判断"有必要查询时间"的时候要将其锁起来
+	// 因为LatestReqTime也涉及读写操作，所以判断"有必要查询时间"的时候要将其锁起来,
 	// 因为可能要等待获取令牌，所以判断每场比赛的"有必要查询时间"时都可以安排一个协程
 	LatestReqTime time.Time //最近一次请求的时间
-	ContestId     int       //比赛名就是key,需要id来构建数据表前缀
+	//因为这三者也有可能在比赛期间改变，为了及时得到更新数据，所以也需要缓存
+	ContestName string
+	StartTime   string
+	EndTime     string
 	// 下面两者的使用率达到百分百了
 	ProblemMap    map[string]ProblemInfo //题目名->数据
 	UserInfoSlice []UserInfo             //所有选手的数据
@@ -87,13 +99,30 @@ type ContestInfo struct {
 	// 1.占用的内存太大	2.使用率低(管理员+选手自己)，就使用了两次
 	// SubmitInfoSlice []SubmitInfo
 	// 管理员的信息使用率高，选手的信息使用率低，感觉可以针对性的缓存
-	NewInfoSlice []NewInfo
-	Token        chan struct{}
+	// NewInfoSlice []NewInfo
+	Token chan struct{}
 }
 
 type ProblemInfo struct { //测试和样例文件的路径(需要查询很多次，但是很少会改变,后期再优化吧)就不缓存了
-	TotalSubmit string
-	AcSubmit    string
+	TotalSubmit  string
+	AcSubmit     string
+	TimeLimit    int64 //运行时间限制,ms
+	MemoryLimit  int64 //运行内存限制,MB
+	MaxFileLimit int64 //选手提交文件大小限制,KB
+	TestFiles    []TestFile
+	ExampleFile  []ExampleFile
+}
+
+type TestFile struct {
+	Id                  string
+	InputPath           string
+	OutPutPath          string
+	OutputFileHashValue string
+}
+type ExampleFile struct {
+	Id         string
+	InputPath  string
+	OutPutPath string
 }
 
 type UserInfo struct {
@@ -103,23 +132,23 @@ type UserInfo struct {
 	Status        string //状态，也许可以不用预处理，交给前端来处理
 }
 
-type SubmitInfo struct { //有些数据user端不应该解析出来
-	StudentNumber string //唯一，可以关联查找，然后得到StudentName和SchoolName
-	SubmitTime    string //提交时间
-	ProblemName   string //题目名称
-	Language      string //语言
-	Status        string //状态
-	RunTime       string //单位ms
-	RunMemory     string //单位MB
-	FileSize      string //单位KB
-}
+// type SubmitInfo struct { //有些数据user端不应该解析出来给选手看或者可以多处理一点，直接不传过去
+// 	StudentNumber string //唯一，可以关联查找，然后得到StudentName和SchoolName
+// 	SubmitTime    string //提交时间
+// 	ProblemName   string //题目名称
+// 	Language      string //语言
+// 	Status        string //状态
+// 	RunTime       string //单位ms
+// 	RunMemory     string //单位MB
+// 	FileSize      string //单位KB
+// }
 
-type NewInfo struct { //有些数据user端不应该解析出来,如其他选手的消息
-	IsManager  bool   //发送该条消息的人员类型，管理者或者选手,默认是false，也就是默认选手
-	Identifier string //发送该条消息的人员标识，managerName或者studentNumber
-	Text       string //发送的文本信息
-	SendTime   string //发送时间
-}
+// type NewInfo struct { //有些数据user端不应该解析出来,如其他选手的消息
+// 	IsManager  bool   //发送该条消息的人员类型，管理者或者选手,默认是false，也就是默认选手
+// 	Identifier string //发送该条消息的人员标识，managerName或者studentNumber
+// 	Text       string //发送的文本信息
+// 	SendTime   string //发送时间
+// }
 
 // 关于数据缓存：
 // 因为不想学redis，所以直接使用内存来构造一个缓存
@@ -128,6 +157,7 @@ type NewInfo struct { //有些数据user端不应该解析出来,如其他选手
 // 有必要查询时间：最近的一次请求的时间到当前的时间，超过一定值，就没有必要查询了
 
 // 		后端：
+// 比赛期间可能会修改比赛名和比赛时间，所以user端定位到一个比赛应该用contestId,而不是contestName
 // 我们可以给每场比赛都构建一个结构体，从而通过将数据保存在结构体中来达到缓存数据的目的，
 // 我们并不需要每隔一段时间就查询一次数据库，我们可以反过来，
 // 向数据库发起查询的情况：

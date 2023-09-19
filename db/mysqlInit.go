@@ -2,6 +2,7 @@ package db
 
 import (
 	"errors"
+	"time"
 
 	"github.com/LQQ4321/owo/config"
 	"go.uber.org/zap"
@@ -48,4 +49,37 @@ func MysqlInit(loggerInstance *zap.Logger) {
 		}
 	}
 	logger.Sugar().Infoln("Database online_judge init succeed !")
+	go cacheLoop()
+}
+
+func cacheLoop() {
+	// 更新定时器的间隔
+	updateInterval := time.Minute * 1
+	updateTicker := time.NewTicker(updateInterval)
+	defer updateTicker.Stop()
+	// updateTicker.C是一个chan，返回值的类型使time.Time
+	// 因为我们用不到返回值，所以不必写出这样：
+	// for v := range updateTicker.C {}
+	for range updateTicker.C {
+		updateFunc()
+	}
+
+	// for {
+	// 	select {
+	// 	case <-updateTicker.C:
+	// 		updateFunc() //还是说是 go updateFunc()???
+	// 	}
+	// }
+}
+
+func updateFunc() {
+	for k, _ := range CacheMap {
+		go func(contestId string) {
+			CacheMap[contestId].Token <- struct{}{} //获取令牌
+			defer func() {
+				<-CacheMap[contestId].Token
+			}()
+
+		}(k)
+	}
 }

@@ -34,7 +34,7 @@ func managerOperate(info []string, c *gin.Context) {
 	if info[0] == "login" {
 		result := DB.Model(&db.Managers{}).
 			Where(&db.Managers{ManagerName: info[1], Password: info[2]}).
-			First(&db.Managers{})
+			First(&db.Managers{}) //临时创建一个指针变量，将查询到的值放入其中，然后一段时间后被gc回收
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		} else {
@@ -189,129 +189,73 @@ func createANewContest(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"广西大学第一届校赛"}
+// {"contestId"}
 func deleteAContest(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
-	var contest db.Contests
-	result := DB.Model(&db.Contests{}).
-		Where(&db.Contests{ContestName: info[0]}).
-		First(&contest)
-	if result.Error != nil {
-		logger.Errorln(result.Error)
-	} else {
-		tablesSuffix := []string{config.PROBLEM_TABLE_SUFFIX, config.USER_TABLE_SUFFIX,
-			config.SUBMIT_TABLE_SUFFIX, config.NEW_TABLE_SUFFIX}
-		err := DB.Transaction(func(tx *gorm.DB) error {
-			for _, tableSuffix := range tablesSuffix {
-				if err := tx.Exec("DROP TABLE IF EXISTS " +
-					db.GetTableName(contest.ID, tableSuffix)).Error; err != nil {
-					return err
-				}
-			}
-			result := tx.Model(&db.Contests{}).
-				Where(&db.Contests{ContestName: info[0]}).
-				Delete(&db.Contests{})
-			if result.Error != nil {
-				return result.Error
-			}
-			contestDir := config.ALL_CONTEST + strconv.Itoa(contest.ID)
-			if err := os.RemoveAll(contestDir); err != nil {
+	tablesSuffix := []string{config.PROBLEM_TABLE_SUFFIX, config.USER_TABLE_SUFFIX,
+		config.SUBMIT_TABLE_SUFFIX, config.NEW_TABLE_SUFFIX}
+	err := DB.Transaction(func(tx *gorm.DB) error {
+		for _, tableSuffix := range tablesSuffix {
+			if err := tx.Exec("DROP TABLE IF EXISTS " +
+				db.GetTableName(info[0], tableSuffix)).
+				Error; err != nil {
 				return err
 			}
-			return nil
-		})
+		}
+		contestId, err := strconv.Atoi(info[0])
 		if err != nil {
 			logger.Errorln(err)
-		} else {
-			response.Status = config.SUCCEED
+			return err
 		}
+		result := tx.Model(&db.Contests{}).
+			Where(&db.Contests{ID: contestId}).
+			Delete(&db.Contests{})
+		if result.Error != nil {
+			return result.Error
+		}
+		contestDir := config.ALL_CONTEST + info[0]
+		if err := os.RemoveAll(contestDir); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		logger.Errorln(err)
+	} else {
+		response.Status = config.SUCCEED
 	}
 	c.JSON(http.StatusOK, response)
 }
 
-// {"广西大学第一届校赛","两数之和"}
+// {"contestId","两数之和"}
 func createANewProblem(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
-	var contest db.Contests
-	result := DB.Model(&db.Contests{}).
-		Where(&db.Contests{ContestName: info[0]}).
-		First(&contest)
+	result := DB.Table(db.GetTableName(info[0],
+		config.PROBLEM_TABLE_SUFFIX)).
+		Where(&db.Problems{ProblemName: info[1]}).
+		First(&db.Problems{})
 	if result.Error != nil {
-		logger.Errorln(result.Error)
-	} else {
-		result = DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-			Where(&db.Problems{ProblemName: info[1]}).
-			First(&db.Problems{})
-		if result.Error != nil {
-			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
-				err := DB.Transaction(func(tx *gorm.DB) error {
-					var problem db.Problems
-					problem.ProblemName = info[1]
-					result := tx.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-						Create(&problem)
-					if result.Error != nil {
-						return result.Error
-					}
-					problemDir := config.ALL_CONTEST +
-						strconv.Itoa(contest.ID) + "/" +
-						strconv.Itoa(problem.ID) + "/" +
-						config.USER_SUBMIT_PATH
-					if err := os.MkdirAll(problemDir, 0755); err != nil {
-						return err
-					}
-					return nil
-				})
-				if err != nil {
-					logger.Errorln(err)
-				} else {
-					response.Status = config.SUCCEED
-				}
-			} else {
-				logger.Errorln(result.Error)
-			}
-		} else {
-			logger.Error(fmt.Errorf("problem name : " + info[1] + " really exists"))
-		}
-	}
-	c.JSON(http.StatusOK, response)
-}
-
-// {"广西大学第一届校赛","两数之和"}
-func deleteAProblem(info []string, c *gin.Context) {
-	var response struct {
-		Status string `json:"status"`
-	}
-	response.Status = config.FAIL
-	var contest db.Contests
-	result := DB.Model(&db.Contests{}).
-		Where(&db.Contests{ContestName: info[0]}).
-		First(&contest)
-	if result.Error != nil {
-		logger.Errorln(result.Error)
-	} else {
-		var problem db.Problems
-		result = DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-			Where(&db.Problems{ProblemName: info[1]}).
-			First(&problem)
-		if result.Error != nil {
-			logger.Errorln(result.Error)
-		} else {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			err := DB.Transaction(func(tx *gorm.DB) error {
-				result := tx.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-					Delete(&problem)
+				var problem db.Problems
+				problem.ProblemName = info[1]
+				result := tx.Table(db.GetTableName(info[0],
+					config.PROBLEM_TABLE_SUFFIX)).
+					Create(&problem)
 				if result.Error != nil {
 					return result.Error
 				}
 				problemDir := config.ALL_CONTEST +
-					strconv.Itoa(contest.ID) + "/" +
-					strconv.Itoa(problem.ID)
-				if err := os.RemoveAll(problemDir); err != nil {
+					info[0] + "/" +
+					strconv.Itoa(problem.ID) + "/" +
+					config.USER_SUBMIT_PATH
+				if err := os.MkdirAll(problemDir, 0755); err != nil {
 					return err
 				}
 				return nil
@@ -321,6 +265,48 @@ func deleteAProblem(info []string, c *gin.Context) {
 			} else {
 				response.Status = config.SUCCEED
 			}
+		} else {
+			logger.Errorln(result.Error)
+		}
+	} else {
+		logger.Error(fmt.Errorf("problem name : " + info[1] + " really exists"))
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"contestId","两数之和"}
+func deleteAProblem(info []string, c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	var problem db.Problems
+	result := DB.Table(db.GetTableName(info[0],
+		config.PROBLEM_TABLE_SUFFIX)).
+		Where(&db.Problems{ProblemName: info[1]}).
+		First(&problem)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	} else {
+		err := DB.Transaction(func(tx *gorm.DB) error {
+			result := tx.Table(db.GetTableName(info[0],
+				config.PROBLEM_TABLE_SUFFIX)).
+				Delete(&problem)
+			if result.Error != nil {
+				return result.Error
+			}
+			problemDir := config.ALL_CONTEST +
+				info[0] + "/" +
+				strconv.Itoa(problem.ID)
+			if err := os.RemoveAll(problemDir); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err != nil {
+			logger.Errorln(err)
+		} else {
+			response.Status = config.SUCCEED
 		}
 	}
 	c.JSON(http.StatusOK, response)
@@ -348,72 +334,71 @@ func requestContestList(info []string, c *gin.Context) {
 		for _, v := range contests {
 			// 话说原本response.ContestList原本是nil，不需要make初始化的吗？(经过测试好像不需要)
 			response.ContestList = append(response.ContestList,
-				[]string{v.ContestName, v.CreatorName, v.CreateTime, v.StartTime, v.EndTime})
+				[]string{strconv.Itoa(v.ID), v.ContestName,
+					v.CreatorName, v.CreateTime, v.StartTime, v.EndTime})
 		}
 		response.Status = config.SUCCEED
 	}
 	c.JSON(http.StatusOK, response)
 }
 
-// {"广西大学第一届校赛"}
+// {"contestId"}
 func requestProblemList(info []string, c *gin.Context) {
 	var response struct {
 		Status      string     `json:"status"`
 		ProblemList [][]string `json:"problemList"`
 	}
 	response.Status = config.FAIL
-	var contest db.Contests
-	if err := DB.Model(&db.Contests{}).
-		Where(&db.Contests{ContestName: info[0]}).
-		First(&contest); err != nil {
+	var problems []db.Problems
+	if err := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
+		Find(&problems); err != nil {
 		logger.Errorln(err)
 	} else {
-		var problems []db.Problems
-		if err := DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-			Find(&problems); err != nil {
-			logger.Errorln(err)
-		} else {
-			for _, v := range problems {
-				pdfFile := "false"
-				ioFiles := "false"
-				if v.Pdf {
-					pdfFile = "true"
-				}
-				if v.TestFiles != "" {
-					ioFiles = "true"
-				}
-				response.ProblemList = append(response.ProblemList,
-					[]string{v.ProblemName,
-						strconv.FormatInt(v.TimeLimit, 10),
-						strconv.FormatInt(v.MemoryLimit, 10),
-						strconv.FormatInt(v.MaxFileLimit, 10),
-						pdfFile, ioFiles})
+		for _, v := range problems {
+			pdfFile := "false"
+			ioFiles := "false"
+			if v.Pdf {
+				pdfFile = "true"
 			}
+			if v.TestFiles != "" {
+				ioFiles = "true"
+			}
+			response.ProblemList = append(response.ProblemList,
+				[]string{v.ProblemName,
+					strconv.FormatInt(v.TimeLimit, 10),
+					strconv.FormatInt(v.MemoryLimit, 10),
+					strconv.FormatInt(v.MaxFileLimit, 10),
+					pdfFile, ioFiles})
+		}
+		response.Status = config.SUCCEED
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"contestId","ICPC-ACM 第五十九届","2023-10-10 11:00:00","2023-10-10 16:00:00"}
+func changeContestConfig(info []string, c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	contestId, err := strconv.Atoi(info[0])
+	if err != nil {
+		logger.Errorln(err)
+	} else {
+		result := DB.Model(&db.Contests{}).
+			Where(&db.Contests{ID: contestId}).
+			Updates(&db.Contests{ContestName: info[1], //有些地方没有字段不包含在此次更新内，不知道这些字段会不会被默认值的覆盖掉
+				StartTime: info[2], EndTime: info[3]})
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
 			response.Status = config.SUCCEED
 		}
 	}
 	c.JSON(http.StatusOK, response)
 }
 
-// {"广西大学第一届校赛","ICPC-ACM 第五十九届","2023-10-10 11:00:00","2023-10-10 16:00:00"}
-func changeContestConfig(info []string, c *gin.Context) {
-	var response struct {
-		Status string `json:"status"`
-	}
-	response.Status = config.FAIL
-	result := DB.Model(&db.Contests{}).
-		Where(&db.Contests{ContestName: info[0]}).
-		Updates(&db.Contests{ContestName: info[1], //有些地方没有字段不包含在此次更新内，不知道这些字段会不会被默认值的覆盖掉
-			StartTime: info[2], EndTime: info[3]})
-	if result.Error != nil {
-		logger.Errorln(result.Error)
-	} else {
-		response.Status = config.SUCCEED
-	}
-	c.JSON(http.StatusOK, response)
-}
-
-// {"广西大学第一届校赛","两数之和","100","128","10"}
+// {"contestId","两数之和","100","128","10"}
 func changeProblemConfig(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
@@ -431,84 +416,62 @@ func changeProblemConfig(info []string, c *gin.Context) {
 	if err != nil {
 		logger.Errorln(err)
 	}
-	var contest db.Contests
-	result := DB.Model(&db.Contests{}).
-		Where(&db.Contests{ContestName: info[0]}).First(&contest)
+	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
+		Where(&db.Problems{ProblemName: info[1]}).
+		Updates(&db.Problems{TimeLimit: timeLimit,
+			MemoryLimit: memoryLimit, MaxFileLimit: submitFileLimit})
 	if result.Error != nil {
 		logger.Errorln(result.Error)
 	} else {
-		result = DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-			Where(&db.Problems{ProblemName: info[1]}).
-			Updates(&db.Problems{TimeLimit: timeLimit,
-				MemoryLimit: memoryLimit, MaxFileLimit: submitFileLimit})
-		if result.Error != nil {
-			logger.Errorln(result.Error)
-		} else {
-			response.Status = config.SUCCEED
-		}
+		response.Status = config.SUCCEED
 	}
 	c.JSON(http.StatusOK, response)
 }
 
-// {"广西大学第一届校赛"}
+// {"contestId"}
 func downloadPlayerList(info []string, c *gin.Context) {
 	var response struct {
 		Status      string `json:"status"`
 		PlayersFile string `json:"playersFile"`
 	}
 	response.Status = config.FAIL
-	var contest db.Contests
-	result := DB.Model(&db.Contests{}).
-		Where(&db.Contests{ContestName: info[0]}).
-		First(&contest)
+	var fileContent string
+	var users []db.Users
+	result := DB.
+		Table(db.GetTableName(info[0], config.USER_TABLE_SUFFIX)).
+		Find(&users)
 	if result.Error != nil {
 		logger.Errorln(result.Error)
 	} else {
-		var fileContent string
-		var users []db.Users
-		result = DB.
-			Table(db.GetTableName(contest.ID, config.USER_TABLE_SUFFIX)).
-			Find(&users)
-		if result.Error != nil {
-			logger.Errorln(result.Error)
-		} else {
-			for _, v := range users {
-				list := make([]string, 4)
-				list[0] = v.StudentNumber
-				list[1] = v.StudentName
-				list[2] = v.SchoolName
-				list[3] = v.Password
-				fileContent += strings.Join(list, "\t") + "\n"
-			}
-			response.PlayersFile = fileContent
-			response.Status = config.SUCCEED
+		for _, v := range users {
+			list := make([]string, 4)
+			list[0] = v.StudentNumber
+			list[1] = v.StudentName
+			list[2] = v.SchoolName
+			list[3] = v.Password
+			//特判：内容太长了，超过一行
+			fileContent += strings.Join(list, "\t") + "\n"
 		}
+		response.PlayersFile = fileContent
+		response.Status = config.SUCCEED
 	}
 	c.JSON(http.StatusOK, response)
 }
 
-// {"广西大学第一届校赛","managerName","text","sendTime"}
+// {"contestId","managerName","text","sendTime"}
 func sendNews(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
-	var contest db.Contests
-	result := DB.Model(&db.Contests{}).
-		Where(&db.Contests{ContestName: info[0]}).
-		First(&contest)
+	news := db.News{IsManager: true, Identifier: info[1],
+		Text: info[2], SendTime: info[3]}
+	result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
+		Create(&news)
 	if result.Error != nil {
 		logger.Error(result.Error)
 	} else {
-		news := db.News{IsManager: true, Identifier: info[1],
-			Text: info[2], SendTime: info[3]}
-		result = DB.Table(db.GetTableName(contest.ID, config.NEW_TABLE_SUFFIX)).
-			Create(&news)
-		if result.Error != nil {
-			logger.Error(result.Error)
-		} else {
-			response.Status = config.SUCCEED
-		}
+		response.Status = config.SUCCEED
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -552,17 +515,17 @@ func requestTestNil(info []string, c *gin.Context) {
 
 // ======= not file up ============= file down =========================
 
-// {"addUsersFromFile","contestName","file"}
+// {"contestId","file"}
 func addUsersFromFile(c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
 	file, err := c.FormFile("file")
-	contestName := c.Request.FormValue("contestName")
+	contestId := c.Request.FormValue("contestId")
 	if err != nil {
 		logger.Errorln(err)
-	} else if contestName == "" {
+	} else if contestId == "" {
 		logger.Errorln(fmt.Errorf("parse contest name fail"))
 	} else {
 		fileReader, err := file.Open()
@@ -575,273 +538,243 @@ func addUsersFromFile(c *gin.Context) {
 		if err != nil {
 			logger.Errorln(err)
 		} else {
-			var contest db.Contests
-			if result := DB.Model(&db.Contests{}).
-				Where(&db.Contests{ContestName: contestName}).
-				First(&contest); result.Error != nil {
-				logger.Errorln(result.Error)
-			} else {
-				err := DB.Transaction(func(tx *gorm.DB) error {
-					deleteSql := "TRUNCATE TABLE " +
-						db.GetTableName(contest.ID, config.USER_TABLE_SUFFIX)
-					if result := tx.Exec(deleteSql); result.Error != nil {
-						return result.Error
-					}
-					return nil
-				})
-				if err != nil {
-					logger.Errorln(err)
-				} else {
-					scanner := bufio.NewScanner(fileReader)
-					users := make([]db.Users, 0)
-					for scanner.Scan() {
-						line := scanner.Text()
-						userInfo := strings.Fields(line)
-						flag := false
-						// studentNumber,studentName,schoolName,password
-						for _, v := range users {
-							if userInfo[0] == v.StudentNumber {
-								flag = true
-								break
-							}
-						}
-						if flag {
-							continue
-						}
-						users = append(users, db.Users{
-							StudentNumber: userInfo[0],
-							StudentName:   userInfo[1],
-							SchoolName:    userInfo[2],
-							Password:      userInfo[3],
-						})
-					}
-					err := DB.Transaction(func(tx *gorm.DB) error {
-						if result := tx.Table(
-							db.GetTableName(contest.ID, config.USER_TABLE_SUFFIX)).
-							Create(&users); result.Error != nil {
-							return result.Error
-						}
-						return nil
-					})
-					if err != nil {
-						logger.Errorln(err)
-					} else {
-						response.Status = config.SUCCEED
+			scanner := bufio.NewScanner(fileReader)
+			users := make([]db.Users, 0)
+			for scanner.Scan() {
+				line := scanner.Text()
+				userInfo := strings.Fields(line)
+				flag := false
+				// studentNumber,studentName,schoolName,password
+				for _, v := range users {
+					if userInfo[0] == v.StudentNumber {
+						flag = true
+						break
 					}
 				}
+				if flag {
+					continue
+				}
+				users = append(users, db.Users{
+					StudentNumber: userInfo[0],
+					StudentName:   userInfo[1],
+					SchoolName:    userInfo[2],
+					Password:      userInfo[3],
+				})
+			}
+			err := DB.Transaction(func(tx *gorm.DB) error {
+				if result := tx.Table(
+					db.GetTableName(contestId, config.USER_TABLE_SUFFIX)).
+					Create(&users); result.Error != nil {
+					return result.Error
+				}
+				return nil
+			})
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				response.Status = config.SUCCEED
 			}
 		}
 	}
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestName","problemName","file"}
+// {"contestId","problemName","file"}
 func uploadPdfFile(c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
-	contestName := c.Request.FormValue("contestName")
+	contestId := c.Request.FormValue("contestId")
 	problemName := c.Request.FormValue("problemName")
+	if contestId == "" || problemName == "" {
+		logger.Errorln("parse field fail")
+		c.JSON(http.StatusOK, response)
+		return
+	}
 	file, err := c.FormFile("file")
 	if err != nil {
 		logger.Errorln(err)
 	} else {
-		var contest db.Contests
-		result := DB.Model(&db.Contests{}).
-			Where(&db.Contests{ContestName: contestName}).
-			First(&contest)
+		var problem db.Problems
+		result := DB.Table(db.GetTableName(contestId, config.PROBLEM_TABLE_SUFFIX)).
+			Where(&db.Problems{ProblemName: problemName}).
+			First(&problem)
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		} else {
-			var problem db.Problems
-			result := DB.Table(db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-				Where(&db.Problems{ProblemName: problemName}).
-				First(&problem)
-			if result.Error != nil {
-				logger.Errorln(result.Error)
-			} else {
-				pdfPath := config.ALL_CONTEST +
-					strconv.Itoa(contest.ID) + "/" +
-					strconv.Itoa(problem.ID) + "/" +
-					config.PDF_FILE_NAME
-				if err := c.SaveUploadedFile(file, pdfPath); err != nil {
+			pdfPath := config.ALL_CONTEST +
+				contestId + "/" +
+				strconv.Itoa(problem.ID) + "/" +
+				config.PDF_FILE_NAME
+			if err := c.SaveUploadedFile(file, pdfPath); err != nil {
+				logger.Errorln(err)
+			}
+			if !problem.Pdf {
+				err := DB.Transaction(func(tx *gorm.DB) error {
+					problem.Pdf = true
+					return tx.Table(
+						db.GetTableName(contestId, config.PROBLEM_TABLE_SUFFIX)).
+						Save(&problem).Error
+				})
+				if err != nil {
 					logger.Errorln(err)
-				}
-				if !problem.Pdf {
-					err := DB.Transaction(func(tx *gorm.DB) error {
-						problem.Pdf = true
-						return tx.Table(
-							db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-							Save(&problem).Error
-					})
-					if err != nil {
-						logger.Errorln(err)
-					} else {
-						response.Status = config.SUCCEED
-					}
 				} else {
 					response.Status = config.SUCCEED
 				}
+			} else {
+				response.Status = config.SUCCEED
 			}
 		}
 	}
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestName","problemName","file"}
+// {"contestId","problemName","file"}
 func uploadIoFiles(c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
-	contestName := c.Request.FormValue("contestName")
+	contestId := c.Request.FormValue("contestId")
 	problemName := c.Request.FormValue("problemName")
 	file, err := c.FormFile("file")
 	if err != nil {
 		logger.Errorln(err)
 	} else {
-		var contest db.Contests
-		result := DB.Model(&db.Contests{}).
-			Where(&db.Contests{ContestName: contestName}).
-			First(&contest)
+		var problem db.Problems
+		result := DB.Table(
+			db.GetTableName(contestId, config.PROBLEM_TABLE_SUFFIX)).
+			Where(&db.Problems{ProblemName: problemName}).
+			First(&problem)
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		} else {
-			var problem db.Problems
-			result := DB.Table(
-				db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-				Where(&db.Problems{ProblemName: problemName}).
-				First(&problem)
-			if result.Error != nil {
-				logger.Errorln(result.Error)
+			filePath := config.ALL_CONTEST +
+				contestId + "/" +
+				strconv.Itoa(problem.ID)
+			ioPath := filePath + "/" + file.Filename
+			if err := c.SaveUploadedFile(file, ioPath); err != nil {
+				logger.Errorln(err)
 			} else {
-				filePath := config.ALL_CONTEST +
-					strconv.Itoa(contest.ID) + "/" +
-					strconv.Itoa(problem.ID)
-				ioPath := filePath + "/" + file.Filename
-				if err := c.SaveUploadedFile(file, ioPath); err != nil {
+				// 删除除submit和根目录以外的所有文件夹,
+				// 为了接下来解压zip文件后，方便寻找解压后的目录名
+				dirs := make([]string, 0)
+				err := filepath.Walk(filePath,
+					func(path string, info fs.FileInfo, err error) error {
+						if err != nil {
+							return err
+						}
+						if info.IsDir() {
+							if info.Name() != config.USER_SUBMIT_PATH && path != filePath {
+								dirs = append(dirs, filepath.Join(filePath, info.Name()))
+							}
+							if path == filePath {
+								return nil
+							}
+							return filepath.SkipDir //跳出当前目录，不再对当前目录进行递归
+						}
+						return nil
+					})
+				if err != nil {
 					logger.Errorln(err)
 				} else {
-					// 删除除submit和根目录以外的所有文件夹,
-					// 为了接下来解压zip文件后，方便寻找解压后的目录名
-					dirs := make([]string, 0)
-					err := filepath.Walk(filePath,
-						func(path string, info fs.FileInfo, err error) error {
-							if err != nil {
-								return err
-							}
-							if info.IsDir() {
-								if info.Name() != config.USER_SUBMIT_PATH && path != filePath {
-									dirs = append(dirs, filepath.Join(filePath, info.Name()))
-								}
-								if path == filePath {
-									return nil
-								}
-								return filepath.SkipDir //跳出当前目录，不再对当前目录进行递归
-							}
-							return nil
-						})
-					if err != nil {
+					for _, v := range dirs {
+						if err := os.RemoveAll(v); err != nil {
+							logger.Errorln(err)
+							c.JSON(http.StatusOK, response)
+							return
+						}
+					}
+					if err := Unzip(ioPath, filePath); err != nil {
 						logger.Errorln(err)
 					} else {
-						for _, v := range dirs {
-							if err := os.RemoveAll(v); err != nil {
+						// 寻找解压后的目录名,(解压前的zip文件和解压后得到的目录，名称可能不一样)
+						// 在windows上新建一个文件夹，取名为A，然后压缩，改名为B
+						// 那么在linux上解压前名为B，解压后名为A
+						var ioDir string
+						err := filepath.Walk(filePath,
+							func(path string, info fs.FileInfo, err error) error {
+								if err != nil {
+									return err
+								}
+								if info.IsDir() {
+									if info.Name() != config.USER_SUBMIT_PATH && path != filePath {
+										ioDir = info.Name()
+									}
+									if path != filePath {
+										return filepath.SkipDir
+									}
+								}
+								return nil
+							})
+						if err != nil {
+							logger.Errorln(err)
+						} else {
+							testDir := filePath + "/" + ioDir + "/" + config.TEST_FILE_NAME + "/"
+							exampleDir := filePath + "/" + ioDir + "/" + config.EXAMPLE_FILE_NAME + "/"
+							testMap, err := visit(testDir)
+							if err != nil {
 								logger.Errorln(err)
 								c.JSON(http.StatusOK, response)
 								return
 							}
-						}
-						if err := Unzip(ioPath, filePath); err != nil {
-							logger.Errorln(err)
-						} else {
-							// 寻找解压后的目录名,(解压前的zip文件和解压后得到的目录，名称可能不一样)
-							// 在windows上新建一个文件夹，取名为A，然后压缩，改名为B
-							// 那么在linux上解压前名为B，解压后名为A
-							var ioDir string
-							err := filepath.Walk(filePath,
-								func(path string, info fs.FileInfo, err error) error {
-									if err != nil {
-										return err
-									}
-									if info.IsDir() {
-										if info.Name() != config.USER_SUBMIT_PATH && path != filePath {
-											ioDir = info.Name()
-										}
-										if path != filePath {
-											return filepath.SkipDir
-										}
-									}
-									return nil
-								})
+							testList := make([]string, 0)
+							for key, value := range testMap {
+								if value[0] == "null" || value[1] == "null" {
+									continue
+								}
+								list := []string{key, testDir + value[0], testDir + value[1]}
+								// 将windows格式的txt文件转为linux格式的txt文件
+								err = judger.FileConversion(testDir+value[1], filePath+"/"+value[1])
+								if err != nil {
+									logger.Errorln(err)
+									c.JSON(http.StatusOK, response)
+									return
+								}
+								h := judger.GenerateHashValue(filePath + "/" + value[1])
+								if h == "" {
+									c.JSON(http.StatusOK, response)
+									return
+								}
+								list = append(list, h)
+								//id|inid_path|outid_path|hashValue#
+								testList = append(testList, strings.Join(list, "|"))
+							}
+							exampleMap, err := visit(exampleDir)
+							if err != nil {
+								logger.Errorln(err)
+								c.JSON(http.StatusOK, response)
+								return
+							}
+							exampleList := make([]string, 0)
+							for key, value := range exampleMap {
+								if value[0] == "null" || value[1] == "null" {
+									continue
+								}
+								list := []string{key, exampleDir + value[0], exampleDir + value[1]}
+								//id|inid_path|outid_path#
+								exampleList = append(exampleList, strings.Join(list, "|"))
+							}
+							err = cleanTempFile(filePath)
+							if err != nil {
+								logger.Errorln(err)
+								c.JSON(http.StatusOK, response)
+								return
+							}
+							// 下面的Save是全字段更新，所以该方法里面的结构体应该包含原本的数据，
+							// 不应该通过新建一个结构体变量的方式来更新数据行
+							problem.TestFiles = strings.Join(testList, "#")
+							problem.ExampleFiles = strings.Join(exampleList, "#")
+							err = DB.Transaction(func(tx *gorm.DB) error {
+								return tx.Table(
+									db.GetTableName(contestId, config.PROBLEM_TABLE_SUFFIX)).
+									Save(&problem).Error
+							})
 							if err != nil {
 								logger.Errorln(err)
 							} else {
-								testDir := filePath + "/" + ioDir + "/" + config.TEST_FILE_NAME + "/"
-								exampleDir := filePath + "/" + ioDir + "/" + config.EXAMPLE_FILE_NAME + "/"
-								testMap, err := visit(testDir)
-								if err != nil {
-									logger.Errorln(err)
-									c.JSON(http.StatusOK, response)
-									return
-								}
-								testList := make([]string, 0)
-								for key, value := range testMap {
-									if value[0] == "null" || value[1] == "null" {
-										continue
-									}
-									list := []string{key, testDir + value[0], testDir + value[1]}
-									// 将windows格式的txt文件转为linux格式的txt文件
-									err = judger.FileConversion(testDir+value[1], filePath+"/"+value[1])
-									if err != nil {
-										logger.Errorln(err)
-										c.JSON(http.StatusOK, response)
-										return
-									}
-									h := judger.GenerateHashValue(filePath + "/" + value[1])
-									if h == "" {
-										c.JSON(http.StatusOK, response)
-										return
-									}
-									list = append(list, h)
-									//id|inid_path|outid_path|hashValue#
-									testList = append(testList, strings.Join(list, "|"))
-								}
-								exampleMap, err := visit(exampleDir)
-								if err != nil {
-									logger.Errorln(err)
-									c.JSON(http.StatusOK, response)
-									return
-								}
-								exampleList := make([]string, 0)
-								for key, value := range exampleMap {
-									if value[0] == "null" || value[1] == "null" {
-										continue
-									}
-									list := []string{key, exampleDir + value[0], exampleDir + value[1]}
-									//id|inid_path|outid_path#
-									exampleList = append(exampleList, strings.Join(list, "|"))
-								}
-								err = cleanTempFile(filePath)
-								if err != nil {
-									logger.Errorln(err)
-									c.JSON(http.StatusOK, response)
-									return
-								}
-								// 下面的Save是全字段更新，所以该方法里面的结构体应该包含原本的数据，
-								// 不应该通过新建一个结构体变量的方式来更新数据行
-								problem.TestFiles = strings.Join(testList, "#")
-								problem.ExampleFiles = strings.Join(exampleList, "#")
-								err = DB.Transaction(func(tx *gorm.DB) error {
-									return tx.Table(
-										db.GetTableName(contest.ID, config.PROBLEM_TABLE_SUFFIX)).
-										Save(&problem).Error
-								})
-								if err != nil {
-									logger.Errorln(err)
-								} else {
-									response.Status = config.SUCCEED
-								}
+								response.Status = config.SUCCEED
 							}
 						}
 					}
