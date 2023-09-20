@@ -2,7 +2,6 @@ package db
 
 import (
 	"errors"
-	"time"
 
 	"github.com/LQQ4321/owo/config"
 	"go.uber.org/zap"
@@ -49,41 +48,40 @@ func MysqlInit(loggerInstance *zap.Logger) {
 		}
 	}
 	logger.Sugar().Infoln("Database online_judge init succeed !")
-	go cacheLoop()
+	go cacheUpdateLoop()
 }
 
-func cacheLoop() {
-	// 更新定时器的间隔
-	updateInterval := time.Minute * 1
-	updateTicker := time.NewTicker(updateInterval)
-	defer updateTicker.Stop()
-	// updateTicker.C是一个chan，返回值的类型使time.Time
-	// 因为我们用不到返回值，所以不必写出这样：
-	// for v := range updateTicker.C {}
-	for range updateTicker.C {
-		updateFunc() //还是说是 go updateFunc()???
-	}
+// func cacheLoop() {
+// 	// 更新定时器的间隔
+// 	updateInterval := time.Minute * 1
+// 	updateTicker := time.NewTicker(updateInterval)
+// 	defer updateTicker.Stop()
+// 	// updateTicker.C是一个chan，返回值的类型使time.Time
+// 	// 因为我们用不到返回值，所以不必写出这样：
+// 	// for v := range updateTicker.C {}
+// 	for range updateTicker.C {
+// 		updateFunc() //还是说是 go updateFunc()???
+// 	}
 
-	// for {
-	// 	select {
-	// 	case <-updateTicker.C:
-	// 		updateFunc() //还是说是 go updateFunc()???
-	// 	}
-	// }
-}
+// 	// for {
+// 	// 	select {
+// 	// 	case <-updateTicker.C:
+// 	// 		updateFunc() //还是说是 go updateFunc()???
+// 	// 	}
+// 	// }
+// }
 
-func updateFunc() {
-	for k, _ := range CacheMap {
-		go func(contestId string) {
-			CacheMap[contestId].Token <- struct{}{} //获取令牌
-			defer func() {
-				<-CacheMap[contestId].Token
-			}()
+// func updateFunc() {
+// 	for k, _ := range CacheMap {
+// 		go func(contestId string) {
+// 			CacheMap[contestId].Token <- struct{}{} //获取令牌
+// 			defer func() {
+// 				<-CacheMap[contestId].Token
+// 			}()
 
-		}(k)
-	}
-}
-
+// 		}(k)
+// 	}
+// }
 
 // 如果你的需求中读操作远远多于写操作，并且希望使用通道来实现读写安全，
 // 你可以考虑使用读写锁（sync.RWMutex）和通道的组合来实现。
@@ -92,13 +90,6 @@ func updateFunc() {
 // 下面是一个示例代码，演示了如何使用读写锁和通道来实现对变量的读写安全，
 // 其中读操作直接读取变量的值，写操作通过通道来进行同步：
 
-package main
-
-import (
-	"fmt"
-	"sync"
-	"time"
-)
 // 可能产生的后果，一直有读操作，那么写操作可能就一直没有机会执行，
 // 也许的解决办法，弄一个具有缓存的管道，没读一次，就向该管道中传递一个值，
 // 待到管道满了以后，就不能在进行读操作
@@ -112,66 +103,67 @@ import (
 // 7.进行写操作
 // 8.写锁解锁
 // 新的轮回
-type SafeVariable struct {
-	mu    sync.RWMutex//读写锁：读锁锁上的时候可以读，写锁锁上的时候不能读也不能写
-	value int
-	setCh chan int
-}
+// type SafeVariable struct {
+// 	mu    sync.RWMutex //读写锁：读锁锁上的时候可以读，写锁锁上的时候不能读也不能写
+// 	value int
+// 	setCh chan int
+// }
 
-func NewSafeVariable(initialValue int) *SafeVariable {
-	sv := &SafeVariable{
-		value: initialValue,
-		setCh: make(chan int),
-	}
+// func NewSafeVariable(initialValue int) *SafeVariable {
+// 	sv := &SafeVariable{
+// 		value: initialValue,
+// 		setCh: make(chan int),
+// 	}
 
-	go sv.updateValue()
+// 	go sv.updateValue()
 
-	return sv
-}
+// 	return sv
+// }
 
-func (sv *SafeVariable) GetValue() int {
-	sv.mu.RLock()
-	defer sv.mu.RUnlock()
+// func (sv *SafeVariable) GetValue() int {
+// 	sv.mu.RLock()
+// 	defer sv.mu.RUnlock()
 
-	return sv.value
-}
+// 	return sv.value
+// }
 
-func (sv *SafeVariable) SetValue(newValue int) {
-	sv.setCh <- newValue
-}
+// func (sv *SafeVariable) SetValue(newValue int) {
+// 	sv.setCh <- newValue
+// }
 
-func (sv *SafeVariable) updateValue() {
-	for {
-		value := <-sv.setCh
+// func (sv *SafeVariable) updateValue() {
+// 	for {
+// 		value := <-sv.setCh
 
-		sv.mu.Lock()
-		sv.value = value
-		sv.mu.Unlock()
-	}
-}
+// 		sv.mu.Lock()
+// 		sv.value = value
+// 		sv.mu.Unlock()
+// 	}
+// }
 
-func main() {
-	sv := NewSafeVariable(0)
+// func main() {
+// 	sv := NewSafeVariable(0)
 
-	// 读取变量的值
-	go func() {
-		for {
-			value := sv.GetValue()
-			fmt.Println("Value:", value)
-			time.Sleep(1 * time.Second)
-		}
-	}()
+// 	// 读取变量的值
+// 	go func() {
+// 		for {
+// 			value := sv.GetValue()
+// 			fmt.Println("Value:", value)
+// 			time.Sleep(1 * time.Second)
+// 		}
+// 	}()
 
-	// 修改变量的值
-	go func() {
-		for i := 1; i <= 5; i++ {
-			sv.SetValue(i)
-			time.Sleep(2 * time.Second)
-		}
-	}()
+// 	// 修改变量的值
+// 	go func() {
+// 		for i := 1; i <= 5; i++ {
+// 			sv.SetValue(i)
+// 			time.Sleep(2 * time.Second)
+// 		}
+// 	}()
 
-	time.Sleep(10 * time.Second)
-}
+// 	time.Sleep(10 * time.Second)
+// }
+
 // 在上面的示例中，我们定义了一个 SafeVariable 结构体，其中包含一个读写锁、一个值变量和一个设置通道 setCh。
 // SafeVariable 提供了 GetValue 和 SetValue 方法来读取和修改变量的值。
 // 在 updateValue 方法中，我们通过通道 setCh 来接收写操作传递的新值，并在加锁的情况下更新变量的值。

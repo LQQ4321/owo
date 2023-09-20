@@ -2,7 +2,6 @@ package db
 
 import (
 	"strconv"
-	"time"
 
 	"github.com/LQQ4321/owo/config"
 )
@@ -80,69 +79,69 @@ func GetTableName(id interface{}, tableSuffix string) string {
 }
 
 // 这里有必要缓存的数据是会经常改变而且有大量请求需求的数据
-var CacheMap map[string]ContestInfo = make(map[string]ContestInfo) //string(contestId) -> ContestInfo
+// var CacheMap map[string]ContestInfo = make(map[string]ContestInfo) //string(contestId) -> ContestInfo
 
-// 下面的成员别忘了初始化(所以上面的map的value到底要不要用指针*ContestInfo呀,应该可以不用)
-// 为了方便，下面所有数据的查询都在一个协程中完成
-type ContestInfo struct {
-	// 因为LatestReqTime也涉及读写操作，所以判断"有必要查询时间"的时候要将其锁起来,
-	// 因为可能要等待获取令牌，所以判断每场比赛的"有必要查询时间"时都可以安排一个协程
-	LatestReqTime time.Time //最近一次请求的时间
-	//因为这三者也有可能在比赛期间改变，为了及时得到更新数据，所以也需要缓存
-	ContestName string
-	StartTime   string
-	EndTime     string
-	// 下面两者的使用率达到百分百了
-	ProblemMap    map[string]ProblemInfo //题目名->数据
-	UserInfoSlice []UserInfo             //所有选手的数据
-	// 所有的提交记录，感觉这个字段没有必要缓存
-	// 1.占用的内存太大	2.使用率低(管理员+选手自己)，就使用了两次
-	// SubmitInfoSlice []SubmitInfo
-	// 管理员的信息使用率高，选手的信息使用率低，感觉可以针对性的缓存
-	// NewInfoSlice []NewInfo
-	// 理想：因为读的情况远远比写的情况要多，而且并行的读操作是互不影响的，
-	// 所以理想情况下应该是有一把读锁和一把写锁
-	// 读锁锁上的时候只能进行读操作(大量的读)，写锁锁上的时候只能进行写操作(极少的写)
-	// 现实：现在只有一把锁，读的时候不能写，但是读的操作不是并行的，这样就会降低效率
-	// RToken chan struct{} //读锁的缓存通道
-	// 更新一个值需要两个协程，一个发送数据协程，一个接收数据协程，发送数据协程可以不受读写锁的约束
-	// SetCh chan dataType //将更新的数据发送到管道中，然后在更新协程中给变量设置新值
-	// mu    sync.RWMutex
-	// 尝试的改进：创建一个具有缓存的读管道和一个缓存大小为一的写管道
-	// 读操作：
-	// 尝试进行读操作前，要先获取写令牌，获取不到就阻塞；获取到写令牌后马上释放写令牌，
-	// 从而让其他想要进行读操作，但正阻塞在获取写令牌的协程可以得到令牌。然后
-	// 获取令牌
-}
+// // 下面的成员别忘了初始化(所以上面的map的value到底要不要用指针*ContestInfo呀,应该可以不用)
+// // 为了方便，下面所有数据的查询都在一个协程中完成
+// type ContestInfo struct {
+// 	// 因为LatestReqTime也涉及读写操作，所以判断"有必要查询时间"的时候要将其锁起来,
+// 	// 因为可能要等待获取令牌，所以判断每场比赛的"有必要查询时间"时都可以安排一个协程
+// 	LatestReqTime time.Time //最近一次请求的时间
+// 	//因为这三者也有可能在比赛期间改变，为了及时得到更新数据，所以也需要缓存
+// 	ContestName string
+// 	StartTime   string
+// 	EndTime     string
+// 	// 下面两者的使用率达到百分百了
+// 	ProblemMap    map[string]ProblemInfo //题目名->数据
+// 	UserInfoSlice []UserInfo             //所有选手的数据
+// 	// 所有的提交记录，感觉这个字段没有必要缓存
+// 	// 1.占用的内存太大	2.使用率低(管理员+选手自己)，就使用了两次
+// 	// SubmitInfoSlice []SubmitInfo
+// 	// 管理员的信息使用率高，选手的信息使用率低，感觉可以针对性的缓存
+// 	// NewInfoSlice []NewInfo
+// 	// 理想：因为读的情况远远比写的情况要多，而且并行的读操作是互不影响的，
+// 	// 所以理想情况下应该是有一把读锁和一把写锁
+// 	// 读锁锁上的时候只能进行读操作(大量的读)，写锁锁上的时候只能进行写操作(极少的写)
+// 	// 现实：现在只有一把锁，读的时候不能写，但是读的操作不是并行的，这样就会降低效率
+// 	// RToken chan struct{} //读锁的缓存通道
+// 	// 更新一个值需要两个协程，一个发送数据协程，一个接收数据协程，发送数据协程可以不受读写锁的约束
+// 	// SetCh chan dataType //将更新的数据发送到管道中，然后在更新协程中给变量设置新值
+// 	// mu    sync.RWMutex
+// 	// 尝试的改进：创建一个具有缓存的读管道和一个缓存大小为一的写管道
+// 	// 读操作：
+// 	// 尝试进行读操作前，要先获取写令牌，获取不到就阻塞；获取到写令牌后马上释放写令牌，
+// 	// 从而让其他想要进行读操作，但正阻塞在获取写令牌的协程可以得到令牌。然后
+// 	// 获取令牌
+// }
 
-type ProblemInfo struct { //测试和样例文件的路径(需要查询很多次，但是很少会改变,后期再优化吧)就不缓存了
-	TotalSubmit  string
-	AcSubmit     string
-	TimeLimit    int64 //运行时间限制,ms
-	MemoryLimit  int64 //运行内存限制,MB
-	MaxFileLimit int64 //选手提交文件大小限制,KB
-	TestFiles    []TestFile
-	ExampleFile  []ExampleFile
-}
+// type ProblemInfo struct { //测试和样例文件的路径(需要查询很多次，但是很少会改变,后期再优化吧)就不缓存了
+// 	TotalSubmit  string
+// 	AcSubmit     string
+// 	TimeLimit    int64 //运行时间限制,ms
+// 	MemoryLimit  int64 //运行内存限制,MB
+// 	MaxFileLimit int64 //选手提交文件大小限制,KB
+// 	TestFiles    []TestFile
+// 	ExampleFile  []ExampleFile
+// }
 
-type TestFile struct {
-	Id                  string
-	InputPath           string
-	OutPutPath          string
-	OutputFileHashValue string
-}
-type ExampleFile struct {
-	Id         string
-	InputPath  string
-	OutPutPath string
-}
+// type TestFile struct {
+// 	Id                  string
+// 	InputPath           string
+// 	OutPutPath          string
+// 	OutputFileHashValue string
+// }
+// type ExampleFile struct {
+// 	Id         string
+// 	InputPath  string
+// 	OutPutPath string
+// }
 
-type UserInfo struct {
-	StudentNumber string
-	StudentName   string
-	SchoolName    string
-	Status        string //状态，也许可以不用预处理，交给前端来处理
-}
+// type UserInfo struct {
+// 	StudentNumber string
+// 	StudentName   string
+// 	SchoolName    string
+// 	Status        string //状态，也许可以不用预处理，交给前端来处理
+// }
 
 // type SubmitInfo struct { //有些数据user端不应该解析出来给选手看或者可以多处理一点，直接不传过去
 // 	StudentNumber string //唯一，可以关联查找，然后得到StudentName和SchoolName
