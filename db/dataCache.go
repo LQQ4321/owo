@@ -16,20 +16,20 @@ var (
 	CacheMap = make(map[string]*SafeData) //string(contestId) -> ContestInfo
 	// 保证删除数据时数据的完整性,在创建数据表的时候就添加键值对contestId -> chan，
 	// 当第一次调用该比赛的更新函数的时候，就获取令牌，防止同时有多个更新函数在执行
-	ChMap = make(map[string]chan struct{})
+	UpdateCh = make(map[string]chan struct{})
 	// 等待更新完成
 	WaitCh      = make(map[string]chan struct{})
 	CacheDataMu sync.RWMutex
 )
 
 type SafeData struct {
-	LatestReqTime time.Time   //记录最近一次请求的时间
-	TimeMu        *sync.Mutex //在对LatestReqTime变量进行读写操作时保证数据一致性
+	LatestReqTime time.Time  //记录最近一次请求的时间
+	TimeMu        sync.Mutex //在对LatestReqTime变量进行读写操作时保证数据一致性
 	*ContestInfo
 	ReadToken chan struct{}     //具有缓存的通道，用于读操作获取令牌
-	DataMu    *sync.RWMutex     //读写锁，保护数据完整性
-	SetCh     chan *ContestInfo //传输的数据对象太大，为了避免拷贝，应该传递指针
-	sync.Once
+	DataMu    sync.RWMutex      //读写锁，保护数据完整性
+	setCh     chan *ContestInfo //传输的数据对象太大，为了避免拷贝，应该传递指针
+	// sync.Once
 	// FirstCh   chan struct{}//第一次更新数据
 }
 
@@ -70,6 +70,50 @@ type UserInfo struct {
 	Status        string //状态，也许可以不用预处理，交给前端来处理
 }
 
+// 当CacheMap中不存在想要查询比赛的缓存数据的时候调用
+func InitContestCache(contestId string) {
+	select {
+	// 创建该场比赛的时候就应该这里的UpdateCh[contestId]初始化好，
+	// 清理缓存数据的时候应该将这里的UpdateCh[contestId]管道清空为零
+	case UpdateCh[contestId] <- struct{}{}: // 这里抢到了第一次更新数据的活
+		CacheMap[contestId] = &SafeData{
+			LatestReqTime: time.Now(),
+			ReadToken:     make(chan struct{}, maxReadWriteRatio),
+			setCh:         make(chan *ContestInfo),
+		}
+		updateFunc(contestId)
+		// 通知同样想要进行第一次更新但是未能获取到令牌而阻塞的InitContestCache函数结束阻塞
+		// 清除数据后，应该重新给该场比赛创建一个WaitCh[contestId]
+		close(WaitCh[contestId])
+	// updateFunc(contestId)
+	default:
+		<-WaitCh[contestId] //创建该场比赛的时候就应该这里的WaitCh[contestId]初始化好
+	}
+}
+
+// 向数据库请求数据，向CacheMap[contestId].SetCh管道发送得到的数据
+func updateFunc(contestId string) {
+	go setValue(contestId)
+	// 向数据库获取数据的过程中是不需要加锁的，这期间还可以用旧的数据来完成前端的请求(如果还有读令牌的话)
+	// TODO : 这里执行访问数据数据库的操作
+	CacheMap[contestId].setCh <- &ContestInfo{}
+}
+
+func setValue(contestId string) {
+	// 既然我能够加上锁，那就表示现在现在没有CacheMap[contestId].DataMu.RLock()
+	CacheMap[contestId].DataMu.Lock()
+	CacheMap[contestId].ContestInfo = <-CacheMap[contestId].setCh
+	CacheMap[contestId].DataMu.Unlock()
+	// 重新分配读令牌
+	// 就算这里一边清空，前端请求中一边输入，这也是可行的，因为此时数据已经赋值完成
+	// 经过测试，只要前端有待发送的信号，这里的len就会不断变化，从而一直清空，
+	// 但是不必担心ReadToken失去作用，因为这里的清空速率总比前端发送过来的请求速率要快的多吧,
+	// 所以for循环不会变成死循环
+	for len(CacheMap[contestId].ReadToken) > 0 {
+		<-CacheMap[contestId].ReadToken
+	}
+}
+
 func cacheUpdateLoop() {
 	// 更新定时器的间隔
 	updateInterval := time.Minute * 3
@@ -81,83 +125,29 @@ func cacheUpdateLoop() {
 	cleanCacheInterval := time.Hour
 	cleanTicker := time.NewTicker(cleanCacheInterval)
 	defer cleanTicker.Stop()
-	// // updateTicker.C是一个chan，返回值的类型使time.Time
-	// // 因为我们用不到返回值，所以不必写出这样：
-	// // for v := range updateTicker.C {}
-	// for range updateTicker.C {
-	// 	updateFunc() //还是说是 go updateFunc()???
-	// }
 
 	for {
 		select {
 		case <-updateTicker.C:
-			iterateContest() //应该等待该函数执行完(这里应该实惠阻塞等待该函数执行完的吧)
+			// 好像不加锁不行？？？因为虽然执行这里的case就不会同时执行下面的case，
+			// 但是下面case中是一个协程
+			CacheDataMu.RLock()
+			// 因为这里是启动一个协程去更新，所以实际上也不会锁太长时间,可以看成是非阻塞的
+			for k, _ := range CacheMap {
+				go updateFunc(k)
+			}
+			CacheDataMu.RUnlock()
 		case <-cleanTicker.C:
 			go cleanCacheData() //如果该函数是
 		}
 	}
 }
 
-// 为了保证更新数据(写操作)不会花费太多的时间,写操作中查询数据库的时候也能够进行读操作，
-// 所以应该保证只有"赋值"的时候写锁是锁上的,所以更新的数据应该通过管道传输给一个
-// 管道，然后启动一个协程去专门完成赋值的操作
-
-func req() {
-	CacheDataMu.RLock() //在读锁锁上期间，就不会删除数据了
-	defer CacheDataMu.RUnlock()
-	if _, ok := CacheMap["contestId"]; ok { //该场比赛初始化完成
-		// 进行读操作
-	} else {
-		// 进行初始化操作
-		UpdateFunc("contestId")
-	}
-}
-
-func UpdateFunc(contestId string) {
-	//
-	if _, ok := ChMap[contestId]; ok { //该场比赛初始化未完成
-		select {
-		case ChMap[contestId] <- struct{}{}: //获取令牌，从而开始更新权限
-			// ChMap[contestId]管道不应该关闭
-		default:
-			// 数据更新完成后关闭该通道
-			<-WaitCh[contestId]
-		}
-		// select {
-		// case ch <- struct{}{}:
-		// 	//如果通道阻塞，那么会执行default
-		// 	//如果通道关闭，那么会报错
-		// 	// 那是不是说还得再用一个chan，然后
-		// default:
-		// 	<-waitUpdateDone
-		// }
-
-		// <-ChMap[contestId] //阻塞，等待更新函数执行完成
-	}
-	return
-	// else { //自己就是那个更新函数
-
-	// 	defer func() {
-	// 		close(ChMap[contestId]) //广播，表示初始化后的首次更新函数已经执行完成
-	// 	}()
-	// }
-	if _, ok := ChMap[contestId]; ok { //
-
-	}
-	CacheMap[contestId].DataMu.Lock()
-	defer CacheMap[contestId].DataMu.Unlock()
-	CacheMap[contestId].ContestInfo = <-CacheMap[contestId].SetCh
-	for len(CacheMap[contestId].ReadToken) > 0 {
-		<-CacheMap[contestId].ReadToken
-	}
-}
-
-func iterateContest() {
-
-}
-
 // 因为清理缓存数据不要求有多快，所以不必每场比赛都单独开一个协程专门处理
 func cleanCacheData() {
+	// 这里实际上是有点难等的，因为只有CacheMap不被任何操作依赖的时候，才能加锁
+	// 所以可能出现前一个协程还没等到，后一个协程就又启动了，
+	// 后面优化的时候应该确保同一时间只有一个该协程
 	CacheDataMu.Lock()
 	defer CacheDataMu.Unlock() //等到该函数执行完再解锁也行，该函数执行花不了多少时间
 	for k, v := range CacheMap {
@@ -238,3 +228,10 @@ func cleanCacheData() {
 // 1.3	CacheMap[contestId].DataMu.Unlock()
 // 2.0	如果CacheMap[contestId].done接收到信号
 // 2.1	结束该协程 return
+
+// 还需要额外启动一个协程，用于定期更新缓存数据已经清理缓存数据	：	cacheDataLoop()
+// for {select{}}
+
+// 应该是前端调用initContestCache(contestId)
+// 然后initContestCache(contestId)再调用updateFunc(contestId)
+// 然后updateFunc(contestId)再调用setValue(contestId)

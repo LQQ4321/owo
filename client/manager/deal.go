@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/LQQ4321/owo/config"
 	"github.com/LQQ4321/owo/db"
@@ -482,15 +483,50 @@ func requestContestCacheData(info []string, c *gin.Context) {
 		Status      string         `json:"status"`
 		ContestInfo db.ContestInfo `json:"contestInfo"`
 	}
-	// 在这期间无法执行删除操作
-	// 好像不能递归地加锁？？？(在加锁和解锁之间再加锁的意思吧)
+	response.Status = config.FAIL
 	db.CacheDataMu.RLock()
-	defer db.CacheDataMu.RUnlock()
-	if _, ok := db.CacheMap[info[0]]; ok { //该场比赛已经初始化
-
-	} else { //还未初始化
-		db.UpdateFunc(info[0])
+	// 因为该请求可能在获取到缓存数据后还要处理一些耗时的操作，所以不应该在该函数最后再解锁，
+	// 可以得到数据后就马上解锁，这样可以增加清理缓存函数执行的机率
+	// 但是如果该函数意外退出，执行不到解锁那一步的话，清理函数可能就要一直等待，从而导致死锁了
+	isLock := true
+	defer func() {
+		if isLock {
+			db.CacheDataMu.RUnlock()
+		}
+	}()
+	if _, ok := db.WaitCh[info[0]]; ok { //还未初始化该场比赛的缓存数据
+		// 如果抢到了令牌，就去更新数据
+		// 抢不到，就阻塞在这里等别人更新完数据，然后使用
+		db.InitContestCache(info[0])
 	}
+	// 总之一句话，加锁到解锁之间的时间要短,最好这期间只有赋值这一步操作
+	// 更新时间
+	db.CacheMap[info[0]].TimeMu.Lock()
+	db.CacheMap[info[0]].LatestReqTime = time.Now()
+	db.CacheMap[info[0]].TimeMu.Unlock()
+	// 获取读令牌
+	// 实际上这里不能将获取读令牌的操作放到db.CacheMap[info[0]].DataMu.RLock()锁区间里面，
+	// 因为如果我加上了锁，进入锁区间,但是读令牌没有了，那么我就会阻塞在这里，
+	// 而且db.SetValue方法因为不能把写锁加上，所以也会阻塞，从而导致死锁，
+	db.CacheMap[info[0]].ReadToken <- struct{}{}
+
+	// 更新数据
+	db.CacheMap[info[0]].DataMu.RLock()
+	response.ContestInfo = *db.CacheMap[info[0]].ContestInfo
+	db.CacheMap[info[0]].DataMu.RUnlock()
+	// 及时解锁，增加清理缓存函数执行的几率
+	db.CacheDataMu.RUnlock()
+	isLock = false
+	// TODO 除赋值以外的其他操作
+
+	// // 在这期间无法执行删除操作
+	// // 好像不能递归地加锁？？？(在加锁和解锁之间再加锁的意思吧)
+	// db.CacheDataMu.RLock()
+	// defer db.CacheDataMu.RUnlock()
+	// if _, ok := db.CacheMap[info[0]]; ok { //该场比赛已经初始化
+	// } else { //还未初始化
+	// }
+	// db.CacheMap[info[0]].DataMu.Lock()
 }
 
 // 测试没有赋值的成员，返回到前端后的值
