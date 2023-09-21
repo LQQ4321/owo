@@ -476,6 +476,23 @@ func sendNews(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// {"contestId"}
+func requestContestCacheData(info []string, c *gin.Context) {
+	var response struct {
+		Status      string         `json:"status"`
+		ContestInfo db.ContestInfo `json:"contestInfo"`
+	}
+	// 在这期间无法执行删除操作
+	// 好像不能递归地加锁？？？(在加锁和解锁之间再加锁的意思吧)
+	db.CacheDataMu.RLock()
+	defer db.CacheDataMu.RUnlock()
+	if _, ok := db.CacheMap[info[0]]; ok { //该场比赛已经初始化
+
+	} else { //还未初始化
+		db.UpdateFunc(info[0])
+	}
+}
+
 // 测试没有赋值的成员，返回到前端后的值
 func requestTestNil(info []string, c *gin.Context) {
 	/*
