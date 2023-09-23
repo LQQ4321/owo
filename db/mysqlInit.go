@@ -2,6 +2,7 @@ package db
 
 import (
 	"errors"
+	"strconv"
 
 	"github.com/LQQ4321/owo/config"
 	"go.uber.org/zap"
@@ -45,6 +46,19 @@ func MysqlInit(loggerInstance *zap.Logger) {
 			}
 		} else {
 			logger.Fatal("create root role fail : ", zap.Error(result.Error))
+		}
+	}
+	// 因为每次重启，原本的缓存消息都会丢失，所以这里应该查询所有的比赛，将比赛缓存加载进来
+	var contests []Contests
+	result = DB.Model(&Contests{}).Find(&contests)
+	if result.Error != nil {
+		logger.Fatal("find all contest info fail : ", zap.Error(result.Error))
+	} else {
+		for _, v := range contests {
+			logger.Sugar().Infoln(v.ID)
+			contestId := strconv.Itoa(v.ID)
+			UpdateCh[contestId] = make(chan struct{}, 1)
+			WaitCh[contestId] = make(chan struct{})
 		}
 	}
 	logger.Sugar().Infoln("Database online_judge init succeed !")

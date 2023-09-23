@@ -162,23 +162,30 @@ func createANewContest(info []string, c *gin.Context) {
 					if err != nil {
 						return err
 					}
+					// 创建存放该场比赛文件的文件夹files/allContest/contestId
+					contestDir := config.ALL_CONTEST + strconv.Itoa(contest.ID)
+					err = os.RemoveAll(contestDir)
+					if err != nil {
+						return err
+					} else {
+						err = os.MkdirAll(contestDir, 0755)
+						if err != nil {
+							return err
+						} else {
+							//创建该场比赛的缓存键值对
+							contestId := strconv.Itoa(contest.ID)
+							db.CacheDataMu.Lock()
+							db.UpdateCh[contestId] = make(chan struct{}, 1)
+							db.WaitCh[contestId] = make(chan struct{})
+							db.CacheDataMu.Unlock()
+						}
+					}
 					return nil
 				})
 				if err != nil {
 					logger.Errorln(err)
 				} else {
-					contestDir := config.ALL_CONTEST + strconv.Itoa(contest.ID)
-					err = os.RemoveAll(contestDir)
-					if err != nil {
-						logger.Errorln(err)
-					} else {
-						err = os.MkdirAll(contestDir, 0755)
-						if err != nil {
-							logger.Errorln(err)
-						} else {
-							response.Status = config.SUCCEED
-						}
-					}
+					response.Status = config.SUCCEED
 				}
 			}
 		} else {
@@ -252,6 +259,7 @@ func createANewProblem(info []string, c *gin.Context) {
 				if result.Error != nil {
 					return result.Error
 				}
+				// 创建文件夹
 				problemDir := config.ALL_CONTEST +
 					info[0] + "/" +
 					strconv.Itoa(problem.ID) + "/" +
@@ -494,11 +502,42 @@ func requestContestCacheData(info []string, c *gin.Context) {
 			db.CacheDataMu.RUnlock()
 		}
 	}()
-	if _, ok := db.WaitCh[info[0]]; ok { //还未初始化该场比赛的缓存数据
-		// 如果抢到了令牌，就去更新数据
-		// 抢不到，就阻塞在这里等别人更新完数据，然后使用
-		db.InitContestCache(info[0])
+	// 如果不存在该场比赛，直接返回错误
+	if _, ok := db.WaitCh[info[0]]; !ok {
+		c.JSON(http.StatusOK, response)
+		return
 	}
+	db.InitContestCache(info[0])
+	// 判断该场比赛的缓存数据是否初始化了，修改版本：
+	// 由于db.WaitCh[info[0]]一直没有关闭，所以这里其实是堵塞的
+	// select {
+	// // 还没有初始化数据，如果该管道已经关闭，那么应该是优先执行这个case
+	// case <-db.WaitCh[info[0]]:
+	// 	// 前面在阻塞,执行这里
+	// default:
+	// 	// 如果抢到了令牌，就去更新数据
+	// 	// 抢不到，就阻塞等别人更新完数据，然后使用
+	// 	db.InitContestCache(info[0])
+	// }
+	// if _, ok := <-db.WaitCh[info[0]]; ok { //当前通道未关闭
+	// 	// 如果抢到了令牌，就去更新数据
+	// 	// 抢不到，就阻塞等别人更新完数据，然后使用
+	// 	db.InitContestCache(info[0])
+	// }
+	// 这里有问题，这里的外层if判断的只是WaitCh这个map中是否存在键值对，但是就算该场比赛没有初始化，该键值对也是存在的
+	// 所以应该再来一个内层if判断到底初始化了没有
+	// if v, ok := db.WaitCh[info[0]]; ok { //还未初始化该场比赛的缓存数据
+	// 	// 如果抢到了令牌，就去更新数据
+	// 	// 抢不到，就阻塞在这里等别人更新完数据，然后使用
+	// 	if _, ok = <-v; ok {
+	// 		db.InitContestCache(info[0])
+	// 	}
+	// } else {
+	// 	// 如果选择在这里初始化的话，可能会存在竞态，所以还是在程序启动的时候就初始化好
+	// 	db.WaitCh[info[0]] = make(chan struct{})
+	// 	db.UpdateCh[info[0]] = make(chan struct{}, 1)
+	// 	db.InitContestCache(info[0])
+	// }
 	// 总之一句话，加锁到解锁之间的时间要短,最好这期间只有赋值这一步操作
 	// 更新时间
 	db.CacheMap[info[0]].TimeMu.Lock()
@@ -509,7 +548,6 @@ func requestContestCacheData(info []string, c *gin.Context) {
 	// 因为如果我加上了锁，进入锁区间,但是读令牌没有了，那么我就会阻塞在这里，
 	// 而且db.SetValue方法因为不能把写锁加上，所以也会阻塞，从而导致死锁，
 	db.CacheMap[info[0]].ReadToken <- struct{}{}
-
 	// 更新数据
 	db.CacheMap[info[0]].DataMu.RLock()
 	response.ContestInfo = *db.CacheMap[info[0]].ContestInfo
@@ -517,7 +555,10 @@ func requestContestCacheData(info []string, c *gin.Context) {
 	// 及时解锁，增加清理缓存函数执行的几率
 	db.CacheDataMu.RUnlock()
 	isLock = false
-	// TODO 除赋值以外的其他操作
+	if response.ContestInfo.Error == nil {
+		response.Status = config.SUCCEED
+	}
+	c.JSON(http.StatusOK, response)
 
 	// // 在这期间无法执行删除操作
 	// // 好像不能递归地加锁？？？(在加锁和解锁之间再加锁的意思吧)
