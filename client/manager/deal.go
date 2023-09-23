@@ -174,10 +174,10 @@ func createANewContest(info []string, c *gin.Context) {
 						} else {
 							//创建该场比赛的缓存键值对
 							contestId := strconv.Itoa(contest.ID)
-							db.CacheDataMu.Lock()
+							// db.CacheDataMu.Lock()//感觉要等太久了，还是暂时冒一点数据不完整的风险吧
 							db.UpdateCh[contestId] = make(chan struct{}, 1)
 							db.WaitCh[contestId] = make(chan struct{})
-							db.CacheDataMu.Unlock()
+							// db.CacheDataMu.Unlock()
 						}
 					}
 					return nil

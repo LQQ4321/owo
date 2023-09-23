@@ -30,6 +30,12 @@ func MysqlInit(loggerInstance *zap.Logger) {
 	if err != nil {
 		logger.Fatal("unable to use the database online_judge :", zap.Error(err))
 	}
+	// 需要这么显示使用吗？之前不用好像也行好像不要啊
+	// 报错：Error 1046 (3D000): No database selected
+	// DB = DB.Exec("USE online_judge")
+	// if DB.Error != nil {
+	// 	logger.Fatal("unable to use the database online_judge :", zap.Error(err))
+	// }
 	err = DB.AutoMigrate(&Contests{}, &Managers{})
 	if err != nil {
 		logger.Fatal("create Contests and Managers table fail : ", zap.Error(err))

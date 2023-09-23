@@ -22,6 +22,7 @@ var (
 	WaitCh      = make(map[string]chan struct{})
 	CacheDataMu = new(sync.RWMutex)
 	cleanWaitCh = make(chan struct{}, 1)
+	rwCacheMap  = make(chan struct{}, 1) //确保初始化比赛(写)和更新比赛数据(读)只有一个在进行
 )
 
 type SafeData struct {
@@ -80,6 +81,7 @@ func InitContestCache(contestId string) {
 	case UpdateCh[contestId] <- struct{}{}: // 这里抢到了第一次更新数据的活
 		logger.Sugar().Infoln(contestId + " start init ")
 		// 隐藏bug,这里对CacheMap进行写，cacheUpdateLoop进行读，可能存在竞态
+		rwCacheMap <- struct{}{}
 		CacheMap[contestId] = &SafeData{
 			LatestReqTime: time.Now(),
 			ReadToken:     make(chan struct{}, maxReadWriteRatio),
@@ -88,20 +90,24 @@ func InitContestCache(contestId string) {
 			DataMu:        new(sync.RWMutex),
 			waitCh:        make(chan struct{}, 1),
 		}
+		<-rwCacheMap
 		updateFunc(contestId)
 		// 通知同样想要进行第一次更新但是未能获取到令牌而阻塞的InitContestCache函数结束阻塞
 		// 清除数据后，应该重新给该场比赛创建一个WaitCh[contestId]
 		close(WaitCh[contestId])
 	// updateFunc(contestId)
-	default:
+	case <-WaitCh[contestId]:
+		// default:
 		logger.Sugar().Info(contestId + " waiting init")
-		<-WaitCh[contestId] //创建该场比赛的时候就应该这里的WaitCh[contestId]初始化好
+		// 	<-WaitCh[contestId] //创建该场比赛的时候就应该这里的WaitCh[contestId]初始化好
 	}
 }
 
 // 向数据库请求数据，向CacheMap[contestId].SetCh管道发送得到的数据
 func updateFunc(contestId string) {
 	select {
+	// 有了rwCacheMap，可以保证contestId是初始化成功的,释放该令牌的代码在本次setValue中
+	// 这里出现空指针异常，应该是清理缓存函数执行的时候，该协程已经恰好启动了，
 	case CacheMap[contestId].waitCh <- struct{}{}:
 	default:
 		return
@@ -149,6 +155,7 @@ func setValue(contestId string) {
 	for len(CacheMap[contestId].ReadToken) > 0 {
 		<-CacheMap[contestId].ReadToken
 	}
+	<-CacheMap[contestId].waitCh
 }
 
 // 现在还有一个问题，就是更新协程和清理缓存的协程应该最多同时只能有一个
@@ -170,11 +177,13 @@ func cacheUpdateLoop() {
 			// 好像不加锁不行？？？因为虽然执行这里的case就不会同时执行下面的case，
 			// 但是下面case中是一个协程
 			CacheDataMu.RLock()
+			rwCacheMap <- struct{}{}
 			// 因为这里是启动一个协程去更新，所以实际上也不会锁太长时间,可以看成是非阻塞的
 			for k, _ := range CacheMap {
 				contestId := k //要特别小心协程的参数传递
 				go updateFunc(contestId)
 			}
+			<-rwCacheMap
 			CacheDataMu.RUnlock()
 		case <-cleanTicker.C:
 			logger.Sugar().Infoln("clean Ticker start")
