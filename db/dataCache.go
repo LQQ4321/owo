@@ -1,3 +1,4 @@
+// 有空再研究，现在要赶一下项目进度了
 package db
 
 import (
@@ -105,6 +106,12 @@ func InitContestCache(contestId string) {
 
 // 向数据库请求数据，向CacheMap[contestId].SetCh管道发送得到的数据
 func updateFunc(contestId string) {
+	logger.Sugar().Infoln("contest id is : " + contestId + " start update")
+	CacheDataMu.RLock()
+	if _, ok := CacheMap[contestId]; !ok {
+		CacheDataMu.RUnlock()
+		return
+	}
 	select {
 	// 有了rwCacheMap，可以保证contestId是初始化成功的,释放该令牌的代码在本次setValue中
 	// 这里出现空指针异常，应该是清理缓存函数执行的时候，该协程已经恰好启动了，
@@ -143,6 +150,7 @@ func updateFunc(contestId string) {
 
 // 监听管道，进行写操作
 func setValue(contestId string) {
+	defer CacheDataMu.RUnlock()
 	// 既然我能够加上锁，那就表示现在现在没有CacheMap[contestId].DataMu.RLock()
 	CacheMap[contestId].DataMu.Lock()
 	CacheMap[contestId].ContestInfo = <-CacheMap[contestId].setCh
@@ -156,6 +164,7 @@ func setValue(contestId string) {
 		<-CacheMap[contestId].ReadToken
 	}
 	<-CacheMap[contestId].waitCh
+	logger.Sugar().Infoln("contest id is : " + contestId + " end update")
 }
 
 // 现在还有一个问题，就是更新协程和清理缓存的协程应该最多同时只能有一个
@@ -186,7 +195,6 @@ func cacheUpdateLoop() {
 			<-rwCacheMap
 			CacheDataMu.RUnlock()
 		case <-cleanTicker.C:
-			logger.Sugar().Infoln("clean Ticker start")
 			go cleanCacheData() //如果该函数是
 		}
 	}
@@ -194,6 +202,7 @@ func cacheUpdateLoop() {
 
 // 因为清理缓存数据不要求有多快，所以不必每场比赛都单独开一个协程专门处理
 func cleanCacheData() {
+	logger.Sugar().Infoln("cleanCacheData func start")
 	// 如果想要一个函数同一时间只有一个协程在执行，可以使用这种结构来保证
 	select {
 	// 获取令牌，执行本函数
@@ -218,6 +227,7 @@ func cleanCacheData() {
 	}
 	// 释放令牌(既然能来到这一步，就表示它拿到令牌了，所以释放令牌的时候不会阻塞在这里)
 	<-cleanWaitCh
+	logger.Sugar().Infoln("cleanCacheData func end")
 }
 
 // 经过验证：

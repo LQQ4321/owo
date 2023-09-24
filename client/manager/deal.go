@@ -12,7 +12,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/LQQ4321/owo/config"
 	"github.com/LQQ4321/owo/db"
@@ -173,10 +172,10 @@ func createANewContest(info []string, c *gin.Context) {
 							return err
 						} else {
 							//创建该场比赛的缓存键值对
-							contestId := strconv.Itoa(contest.ID)
-							// db.CacheDataMu.Lock()//感觉要等太久了，还是暂时冒一点数据不完整的风险吧
-							db.UpdateCh[contestId] = make(chan struct{}, 1)
-							db.WaitCh[contestId] = make(chan struct{})
+							// contestId := strconv.Itoa(contest.ID)
+							// // db.CacheDataMu.Lock()//感觉要等太久了，还是暂时冒一点数据不完整的风险吧
+							// db.UpdateCh[contestId] = make(chan struct{}, 1)
+							// db.WaitCh[contestId] = make(chan struct{})
 							// db.CacheDataMu.Unlock()
 						}
 					}
@@ -485,90 +484,180 @@ func sendNews(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// {"coontestId"}
+// func requestProblemsInfo(info []string, c *gin.Context) {
+// 	var response struct {
+// 		Status   string        `json:"status"`
+// 		Problems []db.Problems `json:"problems"`
+// 	}
+// 	response.Status = config.FAIL
+// 	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
+// 		Find(&response.Problems)
+// 	if result.Error != nil {
+// 		logger.Errorln(result.Error)
+// 	} else {
+// 		for i, _ := range response.Problems {
+// 			response.Problems[i].TestFiles = ""
+// 		}
+// 		response.Status = config.SUCCEED
+// 	}
+// 	c.JSON(http.StatusOK, response)
+// }
+
 // {"contestId"}
-func requestContestCacheData(info []string, c *gin.Context) {
+func requestUsersInfo(info []string, c *gin.Context) {
 	var response struct {
-		Status      string         `json:"status"`
-		ContestInfo db.ContestInfo `json:"contestInfo"`
+		Status string     `json:"status"`
+		Users  []db.Users `json:"users"`
 	}
 	response.Status = config.FAIL
-	db.CacheDataMu.RLock()
-	// 因为该请求可能在获取到缓存数据后还要处理一些耗时的操作，所以不应该在该函数最后再解锁，
-	// 可以得到数据后就马上解锁，这样可以增加清理缓存函数执行的机率
-	// 但是如果该函数意外退出，执行不到解锁那一步的话，清理函数可能就要一直等待，从而导致死锁了
-	isLock := true
-	defer func() {
-		if isLock {
-			db.CacheDataMu.RUnlock()
-		}
-	}()
-	// 如果不存在该场比赛，直接返回错误
-	if _, ok := db.WaitCh[info[0]]; !ok {
-		c.JSON(http.StatusOK, response)
-		return
-	}
-	db.InitContestCache(info[0])
-	// 判断该场比赛的缓存数据是否初始化了，修改版本：
-	// 由于db.WaitCh[info[0]]一直没有关闭，所以这里其实是堵塞的
-	// select {
-	// // 还没有初始化数据，如果该管道已经关闭，那么应该是优先执行这个case
-	// case <-db.WaitCh[info[0]]:
-	// 	// 前面在阻塞,执行这里
-	// default:
-	// 	// 如果抢到了令牌，就去更新数据
-	// 	// 抢不到，就阻塞等别人更新完数据，然后使用
-	// 	db.InitContestCache(info[0])
-	// }
-	// if _, ok := <-db.WaitCh[info[0]]; ok { //当前通道未关闭
-	// 	// 如果抢到了令牌，就去更新数据
-	// 	// 抢不到，就阻塞等别人更新完数据，然后使用
-	// 	db.InitContestCache(info[0])
-	// }
-	// 这里有问题，这里的外层if判断的只是WaitCh这个map中是否存在键值对，但是就算该场比赛没有初始化，该键值对也是存在的
-	// 所以应该再来一个内层if判断到底初始化了没有
-	// if v, ok := db.WaitCh[info[0]]; ok { //还未初始化该场比赛的缓存数据
-	// 	// 如果抢到了令牌，就去更新数据
-	// 	// 抢不到，就阻塞在这里等别人更新完数据，然后使用
-	// 	if _, ok = <-v; ok {
-	// 		db.InitContestCache(info[0])
-	// 	}
-	// } else {
-	// 	// 如果选择在这里初始化的话，可能会存在竞态，所以还是在程序启动的时候就初始化好
-	// 	db.WaitCh[info[0]] = make(chan struct{})
-	// 	db.UpdateCh[info[0]] = make(chan struct{}, 1)
-	// 	db.InitContestCache(info[0])
-	// }
-	// 总之一句话，加锁到解锁之间的时间要短,最好这期间只有赋值这一步操作
-	// 更新时间
-	db.CacheMap[info[0]].TimeMu.Lock()
-	db.CacheMap[info[0]].LatestReqTime = time.Now()
-	db.CacheMap[info[0]].TimeMu.Unlock()
-	// 获取读令牌
-	// 实际上这里不能将获取读令牌的操作放到db.CacheMap[info[0]].DataMu.RLock()锁区间里面，
-	// 因为如果我加上了锁，进入锁区间,但是读令牌没有了，那么我就会阻塞在这里，
-	// 而且db.SetValue方法因为不能把写锁加上，所以也会阻塞，从而导致死锁，
-	db.CacheMap[info[0]].ReadToken <- struct{}{}
-	// 更新数据
-	db.CacheMap[info[0]].DataMu.RLock()
-	response.ContestInfo = *db.CacheMap[info[0]].ContestInfo
-	db.CacheMap[info[0]].DataMu.RUnlock()
-	// 及时解锁，增加清理缓存函数执行的几率
-	db.CacheDataMu.RUnlock()
-	isLock = false
-	if response.ContestInfo.Error == nil {
+	result := DB.Table(db.GetTableName(info[0], config.USER_TABLE_SUFFIX)).
+		Find(&response.Users)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	} else {
 		response.Status = config.SUCCEED
 	}
 	c.JSON(http.StatusOK, response)
-
-	// // 在这期间无法执行删除操作
-	// // 好像不能递归地加锁？？？(在加锁和解锁之间再加锁的意思吧)
-	// db.CacheDataMu.RLock()
-	// defer db.CacheDataMu.RUnlock()
-	// if _, ok := db.CacheMap[info[0]]; ok { //该场比赛已经初始化
-	// } else { //还未初始化
-	// }
-	// db.CacheMap[info[0]].DataMu.Lock()
 }
+
+// {"contestId","users.id"}//每次获取的20条数据
+func requestSubmitsInfo(info []string, c *gin.Context) {
+	var response struct {
+		Status  string       `json:"status"`
+		Submits []db.Submits `json:"submits"`
+	}
+	response.Status = config.FAIL
+	highId, err := strconv.Atoi(info[1])
+	if err != nil {
+		logger.Errorln(err)
+	} else {
+		lowId := highId - 21
+		if lowId < 0 {
+			lowId = 0
+		}
+		result := DB.Table(db.GetTableName(info[0], config.SUBMIT_TABLE_SUFFIX)).
+			Where("id > ? AND id < ?", lowId, highId).
+			Find(&response.Submits)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			response.Status = config.SUCCEED
+		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"contestId","news.id"}//每次获取20条数据
+func requestNewsInfo(info []string, c *gin.Context) {
+	var response struct {
+		Status string    `json:"status"`
+		News   []db.News `json:"news"`
+	}
+	response.Status = config.FAIL
+	highId, err := strconv.Atoi(info[1])
+	if err != nil {
+		logger.Errorln(err)
+	} else {
+		lowId := highId - 21
+		if lowId < 0 {
+			lowId = 0
+		}
+		result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
+			Where("id > ? ADN id < ?", lowId, highId).
+			Find(&response.News)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			response.Status = config.SUCCEED
+		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"contestId"}
+// func requestContestCacheData(info []string, c *gin.Context) {
+// 	var response struct {
+// 		Status      string         `json:"status"`
+// 		ContestInfo db.ContestInfo `json:"contestInfo"`
+// 	}
+// 	response.Status = config.FAIL
+// 	db.CacheDataMu.RLock()
+// 	// 因为该请求可能在获取到缓存数据后还要处理一些耗时的操作，所以不应该在该函数最后再解锁，
+// 	// 可以得到数据后就马上解锁，这样可以增加清理缓存函数执行的机率
+// 	// 但是如果该函数意外退出，执行不到解锁那一步的话，清理函数可能就要一直等待，从而导致死锁了
+// 	isLock := true
+// 	defer func() {
+// 		if isLock {
+// 			db.CacheDataMu.RUnlock()
+// 		}
+// 	}()
+// 	// 如果不存在该场比赛，直接返回错误
+// 	if _, ok := db.WaitCh[info[0]]; !ok {
+// 		c.JSON(http.StatusOK, response)
+// 		return
+// 	}
+// 	db.InitContestCache(info[0])
+// 	// 判断该场比赛的缓存数据是否初始化了，修改版本：
+// 	// 由于db.WaitCh[info[0]]一直没有关闭，所以这里其实是堵塞的
+// 	// select {
+// 	// // 还没有初始化数据，如果该管道已经关闭，那么应该是优先执行这个case
+// 	// case <-db.WaitCh[info[0]]:
+// 	// 	// 前面在阻塞,执行这里
+// 	// default:
+// 	// 	// 如果抢到了令牌，就去更新数据
+// 	// 	// 抢不到，就阻塞等别人更新完数据，然后使用
+// 	// 	db.InitContestCache(info[0])
+// 	// }
+// 	// if _, ok := <-db.WaitCh[info[0]]; ok { //当前通道未关闭
+// 	// 	// 如果抢到了令牌，就去更新数据
+// 	// 	// 抢不到，就阻塞等别人更新完数据，然后使用
+// 	// 	db.InitContestCache(info[0])
+// 	// }
+// 	// 这里有问题，这里的外层if判断的只是WaitCh这个map中是否存在键值对，但是就算该场比赛没有初始化，该键值对也是存在的
+// 	// 所以应该再来一个内层if判断到底初始化了没有
+// 	// if v, ok := db.WaitCh[info[0]]; ok { //还未初始化该场比赛的缓存数据
+// 	// 	// 如果抢到了令牌，就去更新数据
+// 	// 	// 抢不到，就阻塞在这里等别人更新完数据，然后使用
+// 	// 	if _, ok = <-v; ok {
+// 	// 		db.InitContestCache(info[0])
+// 	// 	}
+// 	// } else {
+// 	// 	// 如果选择在这里初始化的话，可能会存在竞态，所以还是在程序启动的时候就初始化好
+// 	// 	db.WaitCh[info[0]] = make(chan struct{})
+// 	// 	db.UpdateCh[info[0]] = make(chan struct{}, 1)
+// 	// 	db.InitContestCache(info[0])
+// 	// }
+// 	// 总之一句话，加锁到解锁之间的时间要短,最好这期间只有赋值这一步操作
+// 	// 更新时间
+// 	db.CacheMap[info[0]].TimeMu.Lock()
+// 	db.CacheMap[info[0]].LatestReqTime = time.Now()
+// 	db.CacheMap[info[0]].TimeMu.Unlock()
+// 	// 获取读令牌
+// 	// 实际上这里不能将获取读令牌的操作放到db.CacheMap[info[0]].DataMu.RLock()锁区间里面，
+// 	// 因为如果我加上了锁，进入锁区间,但是读令牌没有了，那么我就会阻塞在这里，
+// 	// 而且db.SetValue方法因为不能把写锁加上，所以也会阻塞，从而导致死锁，
+// 	db.CacheMap[info[0]].ReadToken <- struct{}{}
+// 	// 更新数据
+// 	db.CacheMap[info[0]].DataMu.RLock()
+// 	response.ContestInfo = *db.CacheMap[info[0]].ContestInfo
+// 	db.CacheMap[info[0]].DataMu.RUnlock()
+// 	// 及时解锁，增加清理缓存函数执行的几率
+// 	db.CacheDataMu.RUnlock()
+// 	isLock = false
+// 	if response.ContestInfo.Error == nil {
+// 		response.Status = config.SUCCEED
+// 	}
+// 	c.JSON(http.StatusOK, response)
+// 	// // 在这期间无法执行删除操作
+// 	// // 好像不能递归地加锁？？？(在加锁和解锁之间再加锁的意思吧)
+// 	// db.CacheDataMu.RLock()
+// 	// defer db.CacheDataMu.RUnlock()
+// 	// if _, ok := db.CacheMap[info[0]]; ok { //该场比赛已经初始化
+// 	// } else { //还未初始化
+// 	// }
+// 	// db.CacheMap[info[0]].DataMu.Lock()
+// }
 
 // 测试没有赋值的成员，返回到前端后的值
 func requestTestNil(info []string, c *gin.Context) {
