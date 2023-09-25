@@ -2,6 +2,7 @@ package db
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/LQQ4321/owo/config"
 )
@@ -50,16 +51,59 @@ type Users struct {
 	Status        string //该场比赛的题目状态,分割符使用"|",因为里面要包含时间，时间有分割符":"
 }
 
+func (u *Users) UpdateStatus(problemId, status, submitTime string) {
+	if u.Status == "" { //特判没有题目提交的情况
+		u.Status = strings.Join([]string{problemId, "1", status, submitTime}, "|")
+		return
+	}
+	list := strings.Split(u.Status, "#")
+	editId := -1
+	submitCount := "1"
+	for i, v := range list {
+		if strings.Split(v, "|")[0] == problemId {
+			editId = i
+			count, err := strconv.Atoi(strings.Split(v, "|")[1])
+			if err != nil {
+				logger.Sugar().Errorln(err)
+				count = 0
+			} else {
+				count++
+			}
+			submitCount = strconv.Itoa(count)
+			break
+		}
+	}
+	newStatus := strings.Join([]string{problemId, submitCount, status, submitTime}, "|")
+	if editId == -1 {
+		list = append(list, newStatus)
+	} else {
+		list[editId] = newStatus
+	}
+	u.Status = strings.Join(list, "#")
+}
+
+func (u *Users) IsAccepted(problemId string) bool {
+	list := strings.Split(u.Status, "#")
+	for _, v := range list {
+		statusList := strings.Split(v, "|")
+		if statusList[0] == problemId &&
+			(statusList[2] == config.ACCEPTED || statusList[2] == config.FIRST_AC) {
+			return true
+		}
+	}
+	return false
+}
+
 type Submits struct {
 	ID            int    `gorm:"primaryKey"`
 	StudentNumber string //唯一，可以关联查找，然后得到StudentName和SchoolName
 	SubmitTime    string //提交时间
-	ProblemName   string //题目名称
+	ProblemId     string //题目名称
 	Language      string //语言
 	Status        string //状态
 	RunTime       string //单位ms
 	RunMemory     string //单位MB
-	FileSize      string //单位KB
+	FileSize      string //包含单位
 }
 
 type News struct {
@@ -76,4 +120,19 @@ func GetTableName(id interface{}, tableSuffix string) string {
 		return config.TABLE_PREFIX + strconv.Itoa(num) + tableSuffix
 	}
 	return config.TABLE_PREFIX + id.(string) + tableSuffix
+}
+
+var (
+	units = []string{" byte", " KB"}
+)
+
+func UnitConversion(fileSize int64) string {
+	for _, v := range units {
+		if fileSize >= 1024 {
+			fileSize >>= 10
+		} else {
+			return strconv.FormatInt(fileSize, 10) + v
+		}
+	}
+	return strconv.FormatInt(fileSize, 10) + " MB"
 }

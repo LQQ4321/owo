@@ -37,3 +37,13 @@ const (
 	NEW_TABLE_SUFFIX     = "_news"
 	SUBMIT_TABLE_SUFFIX  = "_submits"
 )
+
+// 提交状态
+const (
+	SUBMIT_FAIL    = "InternalError" //提交失败，是后端的问题，不怪选手，不记在一次失败的提交中
+	SUBMIT_SUCCEED = "Pending"       //提交成功，等待判题机执行代码
+	FIRST_AC       = "FirstAc"       //这道题目第一个AC的选手
+	ACCEPTED       = "Accepted"      //成功通过该题
+	WRONG_ANSWER   = "WrongAnswer"   //回答错误
+	OTHER_ERROR    = "OtherError"    //其他错误的回答
+)
