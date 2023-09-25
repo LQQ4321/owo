@@ -66,7 +66,7 @@ func (u *Users) UpdateStatusPre(problemId, status, submitTime string) {
 			count, err := strconv.Atoi(strings.Split(v, "|")[1])
 			if err != nil {
 				logger.Sugar().Errorln(err)
-				count = 0
+				count = 1
 			} else {
 				count++
 			}
@@ -95,18 +95,12 @@ func (u *Users) UpdateStatusSuf(problemId, status string) {
 	}
 	if editId != -1 {
 		temp := strings.Split(list[editId], "|")
-		submitCount, err := strconv.Atoi(temp[1])
-		if err != nil {
-			logger.Sugar().Errorln(err)
-			submitCount = 1
-		} else {
-			submitCount++
-		}
-		temp[1] = strconv.Itoa(submitCount)
 		temp[2] = status
 		list[editId] = strings.Join(temp, "|")
+		u.Status = strings.Join(list, "#")
+	} else {
+		logger.Sugar().Errorln("not found match option")
 	}
-	u.Status = strings.Join(list, "#")
 }
 
 func (u *Users) IsAccepted(problemId string) bool {

@@ -27,6 +27,7 @@ func UserInit(loggerInstance *zap.SugaredLogger, w judger.Worker) {
 	jsonFuncList = make(map[string]jsonFunc)
 	jsonFuncList = map[string]jsonFunc{
 		"login":               login,
+		"sendNews":            sendNews,
 		"requestProblemsInfo": requestProblemsInfo,
 		"requestUsersInfo":    requestUsersInfo,
 		"requestSubmitsInfo":  requestSubmitsInfo,

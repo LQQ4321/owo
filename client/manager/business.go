@@ -32,8 +32,8 @@ func ManagerInit(loggerInstance *zap.SugaredLogger) {
 	jsonFuncList = append(jsonFuncList, changeContestConfig)
 	jsonFuncList = append(jsonFuncList, changeProblemConfig)
 	jsonFuncList = append(jsonFuncList, downloadPlayerList)
+	jsonFuncList = append(jsonFuncList, downloadSubmitCode)
 	jsonFuncList = append(jsonFuncList, sendNews)
-	jsonFuncList = append(jsonFuncList, requestProblemsInfo)
 	jsonFuncList = append(jsonFuncList, requestUsersInfo)
 	jsonFuncList = append(jsonFuncList, requestSubmitsInfo)
 	jsonFuncList = append(jsonFuncList, requestNewsInfo)
@@ -56,8 +56,8 @@ var (
 		"changeContestConfig",
 		"changeProblemConfig",
 		"downloadPlayerList",
+		"downloadSubmitCode",
 		"sendNews",
-		"requestProblemsInfo",
 		"requestUsersInfo",
 		"requestSubmitsInfo",
 		"requestNewsInfo",

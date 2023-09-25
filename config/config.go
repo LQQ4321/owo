@@ -49,10 +49,16 @@ const (
 	OTHER_ERROR    = "OtherError"    //其他错误的回答
 )
 
+// 支持语言
 const (
 	C_PLUS  = "c++"
 	C       = "c"
 	GOLANG  = "golang"
 	JAVA    = "java"
 	PYTHON3 = "python3"
+)
+
+// 其他常量
+const (
+	LAST_ID = "lastId"
 )

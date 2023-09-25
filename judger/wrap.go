@@ -5,6 +5,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/LQQ4321/owo/config"
 )
 
 type FileInfo interface {
@@ -141,8 +143,8 @@ func judger(req *Request, ch chan<- Response) {
 			return
 		}
 		defer func() { //删除编译产生的文件
-			if err := os.Remove("files/share_judger/" + fileId); err != nil {
-				logger.Infoln(err)
+			if err := os.Remove(config.SHARE_JUDGER + fileId); err != nil {
+				logger.Errorln(err)
 			}
 		}()
 		req.ExecuteFileId = fileId

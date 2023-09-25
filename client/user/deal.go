@@ -15,7 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// {"contestId","studentNumber","password"}
+// {"contestId","studentNumber","password","loginTime"}
 func login(info []string, c *gin.Context) {
 	var response struct {
 		Status      string `json:"status"`
@@ -43,14 +43,41 @@ func login(info []string, c *gin.Context) {
 			if result.Error != nil { //选手信息不正确，用户不存在或密码不正确
 				logger.Errorln(result.Error)
 			} else {
-				response.ContestName = contest.ContestName
-				response.StartTime = contest.StartTime
-				response.EndTime = contest.EndTime
-				response.StudentName = user.StudentName
-				response.SchoolName = user.SchoolName
-				response.Status = config.SUCCEED
+				user.LoginTime = info[3]
+				result := DB.Table(db.GetTableName(info[0], config.USER_TABLE_SUFFIX)).
+					Updates(&user)
+				if result.Error != nil {
+					logger.Errorln(result.Error)
+				} else {
+					response.ContestName = contest.ContestName
+					response.StartTime = contest.StartTime
+					response.EndTime = contest.EndTime
+					response.StudentName = user.StudentName
+					response.SchoolName = user.SchoolName
+					response.Status = config.SUCCEED
+				}
 			}
 		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+// {"contestId","studentNumber","text",sendTime}
+func sendNews(info []string, c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).Create(&db.News{
+		IsManager:  false,
+		Identifier: info[1],
+		Text:       info[2],
+		SendTime:   info[3],
+	})
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	} else {
+		response.Status = config.SUCCEED
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -140,8 +167,7 @@ func downloadExampleFile(info []string, c *gin.Context) {
 	}
 	response.Status = config.FAIL
 	// 路径已经知道了，直接将样例文件读取成字符串返回即可(文件不存在最多也就是报错，不会产生什么严重的后果)
-	exampleFilePath := config.ALL_CONTEST + info[0]
-	content, err := ioutil.ReadFile(exampleFilePath)
+	content, err := ioutil.ReadFile(info[0])
 	if err != nil {
 		logger.Errorln(err)
 	} else {
@@ -284,6 +310,14 @@ func submitCode(c *gin.Context) {
 		return
 	}
 	parseRes := dealJudgerResult(rt.Results, hashValues)
+	submit.Status = parseRes[0]
+	submit.RunTime = parseRes[1]
+	submit.RunMemory = parseRes[2]
+	result = DB.Table(db.GetTableName(contestId, config.SUBMIT_TABLE_SUFFIX)).
+		Updates(&submit)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	}
 	if parseRes[0] == config.SUBMIT_FAIL {
 		setInternalError(&oldUser, &submit, contestId, problemId)
 		return
@@ -305,14 +339,6 @@ func submitCode(c *gin.Context) {
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		}
-	}
-	submit.Status = parseRes[0]
-	submit.RunTime = parseRes[1]
-	submit.RunMemory = parseRes[2]
-	result = DB.Table(db.GetTableName(contestId, config.SUBMIT_TABLE_SUFFIX)).
-		Updates(&submit)
-	if result.Error != nil {
-		logger.Errorln(result.Error)
 	}
 }
 

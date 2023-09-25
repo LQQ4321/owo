@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -476,6 +477,23 @@ func downloadPlayerList(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// {"submitCodeFilePath" = contestId/problemId/submit/submitCodeFileName}
+func downloadSubmitCode(info []string, c *gin.Context) {
+	var response struct {
+		Status         string `json:"status"`
+		SubmitCodeFile string `json:"submitCodeFile"`
+	}
+	response.Status = config.FAIL
+	content, err := ioutil.ReadFile(config.ALL_CONTEST + info[0])
+	if err != nil {
+		logger.Errorln(err)
+	} else {
+		response.SubmitCodeFile = string(content)
+		response.Status = config.SUCCEED
+	}
+	c.JSON(http.StatusOK, response)
+}
+
 // {"contestId","managerName","text","sendTime"}
 func sendNews(info []string, c *gin.Context) {
 	var response struct {
@@ -495,24 +513,24 @@ func sendNews(info []string, c *gin.Context) {
 }
 
 // {"contestId"}
-func requestProblemsInfo(info []string, c *gin.Context) {
-	var response struct {
-		Status   string        `json:"status"`
-		Problems []db.Problems `json:"problems"`
-	}
-	response.Status = config.FAIL
-	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
-		Find(&response.Problems)
-	if result.Error != nil {
-		logger.Errorln(result.Error)
-	} else {
-		for i, _ := range response.Problems {
-			response.Problems[i].TestFiles = ""
-		}
-		response.Status = config.SUCCEED
-	}
-	c.JSON(http.StatusOK, response)
-}
+// func requestProblemsInfo(info []string, c *gin.Context) {
+// 	var response struct {
+// 		Status   string        `json:"status"`
+// 		Problems []db.Problems `json:"problems"`
+// 	}
+// 	response.Status = config.FAIL
+// 	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
+// 		Find(&response.Problems)
+// 	if result.Error != nil {
+// 		logger.Errorln(result.Error)
+// 	} else {
+// 		for i, _ := range response.Problems {
+// 			response.Problems[i].TestFiles = ""
+// 		}
+// 		response.Status = config.SUCCEED
+// 	}
+// 	c.JSON(http.StatusOK, response)
+// }
 
 // {"contestId"}
 func requestUsersInfo(info []string, c *gin.Context) {
@@ -532,13 +550,27 @@ func requestUsersInfo(info []string, c *gin.Context) {
 }
 
 // {"contestId","users.id"}//每次获取的20条数据
+// 第一次请求的话,users.id = lastId,否则就是一个数字
 func requestSubmitsInfo(info []string, c *gin.Context) {
 	var response struct {
 		Status  string       `json:"status"`
 		Submits []db.Submits `json:"submits"`
 	}
 	response.Status = config.FAIL
-	highId, err := strconv.Atoi(info[1])
+	var highId int
+	var err error
+	if info[1] == config.LAST_ID {
+		var submit db.Submits
+		err = DB.Table(db.GetTableName(info[0], config.SUBMIT_TABLE_SUFFIX)).
+			Order("id desc").
+			First(&submit).Error
+		if err == nil {
+			highId = submit.ID
+		}
+	} else {
+		// 这一步还可以顺便防范一下sql注入
+		highId, err = strconv.Atoi(info[1])
+	}
 	if err != nil {
 		logger.Errorln(err)
 	} else {
@@ -558,14 +590,29 @@ func requestSubmitsInfo(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","news.id"}//每次获取20条数据
+// {"contestId","news.id"}//每次获取20条数据,这里的id是前端数值最小的id
+// 第一次请求的话,users.id = lastId,否则就是一个数字
 func requestNewsInfo(info []string, c *gin.Context) {
 	var response struct {
 		Status string    `json:"status"`
 		News   []db.News `json:"news"`
 	}
 	response.Status = config.FAIL
-	highId, err := strconv.Atoi(info[1])
+	var err error
+	var highId int
+	if info[1] == config.LAST_ID {
+		var news db.News
+		// 注意，如果还没有数据的话，这里返回的状态是fail
+		err = DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
+			Order("id desc").
+			First(&news).Error
+		if err == nil {
+			highId = news.ID + 1
+		}
+	} else {
+		// 这一步还可以顺便防范一下sql注入
+		highId, err = strconv.Atoi(info[1])
+	}
 	if err != nil {
 		logger.Errorln(err)
 	} else {
@@ -574,7 +621,7 @@ func requestNewsInfo(info []string, c *gin.Context) {
 			lowId = 0
 		}
 		result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
-			Where("id > ? ADN id < ?", lowId, highId).
+			Where("id > ? AND id < ?", lowId, highId).
 			Find(&response.News)
 		if result.Error != nil {
 			logger.Errorln(result.Error)
