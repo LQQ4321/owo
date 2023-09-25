@@ -51,7 +51,8 @@ type Users struct {
 	Status        string //该场比赛的题目状态,分割符使用"|",因为里面要包含时间，时间有分割符":"
 }
 
-func (u *Users) UpdateStatus(problemId, status, submitTime string) {
+// 提交到judger之前
+func (u *Users) UpdateStatusPre(problemId, status, submitTime string) {
 	if u.Status == "" { //特判没有题目提交的情况
 		u.Status = strings.Join([]string{problemId, "1", status, submitTime}, "|")
 		return
@@ -78,6 +79,32 @@ func (u *Users) UpdateStatus(problemId, status, submitTime string) {
 		list = append(list, newStatus)
 	} else {
 		list[editId] = newStatus
+	}
+	u.Status = strings.Join(list, "#")
+}
+
+// judger处理完成，返回之后
+func (u *Users) UpdateStatusSuf(problemId, status string) {
+	list := strings.Split(u.Status, "#")
+	editId := -1
+	for i, v := range list {
+		if strings.Split(v, "|")[0] == problemId {
+			editId = i
+			break
+		}
+	}
+	if editId != -1 {
+		temp := strings.Split(list[editId], "|")
+		submitCount, err := strconv.Atoi(temp[1])
+		if err != nil {
+			logger.Sugar().Errorln(err)
+			submitCount = 1
+		} else {
+			submitCount++
+		}
+		temp[1] = strconv.Itoa(submitCount)
+		temp[2] = status
+		list[editId] = strings.Join(temp, "|")
 	}
 	u.Status = strings.Join(list, "#")
 }

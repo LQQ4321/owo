@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/LQQ4321/owo/db"
+	"github.com/LQQ4321/owo/judger"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -12,14 +13,16 @@ import (
 var (
 	DB     *gorm.DB
 	logger *zap.SugaredLogger
+	worker judger.Worker
 )
 
 var jsonFuncList map[string]jsonFunc
 var formFuncList map[string]formFunc
 
-func ManagerInit(loggerInstance *zap.SugaredLogger) {
+func UserInit(loggerInstance *zap.SugaredLogger, w judger.Worker) {
 	DB = db.DB
 	logger = loggerInstance
+	worker = w
 	// 跟map[string]*jsonFunc应该没有区别吧
 	jsonFuncList = make(map[string]jsonFunc)
 	jsonFuncList = map[string]jsonFunc{
@@ -28,9 +31,14 @@ func ManagerInit(loggerInstance *zap.SugaredLogger) {
 		"requestUsersInfo":    requestUsersInfo,
 		"requestSubmitsInfo":  requestSubmitsInfo,
 		"requestNewsInfo":     requestNewsInfo,
+		"downloadExampleFile": downloadExampleFile,
+		"downloadPdfFile":     downloadPdfFile,
 	}
 
 	formFuncList = make(map[string]formFunc)
+	formFuncList = map[string]formFunc{
+		"submitCode": submitCode,
+	}
 }
 
 type jsonFunc func([]string, *gin.Context)

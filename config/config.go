@@ -15,6 +15,7 @@ const (
 
 // 文件路径配置
 const (
+	JUDGER_SHARE_FILE = "/dev/shm/"
 	SHARE_JUDGER      = "files/share_judger/"
 	ALL_CONTEST       = "files/allContest/"
 	USER_SUBMIT_PATH  = "submit" //选手提交的代码在submit目录下
@@ -46,4 +47,12 @@ const (
 	ACCEPTED       = "Accepted"      //成功通过该题
 	WRONG_ANSWER   = "WrongAnswer"   //回答错误
 	OTHER_ERROR    = "OtherError"    //其他错误的回答
+)
+
+const (
+	C_PLUS  = "c++"
+	C       = "c"
+	GOLANG  = "golang"
+	JAVA    = "java"
+	PYTHON3 = "python3"
 )

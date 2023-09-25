@@ -250,8 +250,12 @@ func createANewProblem(info []string, c *gin.Context) {
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			err := DB.Transaction(func(tx *gorm.DB) error {
-				var problem db.Problems
-				problem.ProblemName = info[1]
+				problem := db.Problems{
+					ProblemName:  info[1],
+					TimeLimit:    1000,
+					MemoryLimit:  64,
+					MaxFileLimit: 10,
+				}
 				result := tx.Table(db.GetTableName(info[0],
 					config.PROBLEM_TABLE_SUFFIX)).
 					Create(&problem)
@@ -359,7 +363,7 @@ func requestProblemList(info []string, c *gin.Context) {
 	response.Status = config.FAIL
 	var problems []db.Problems
 	if err := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
-		Find(&problems); err != nil {
+		Find(&problems).Error; err != nil {
 		logger.Errorln(err)
 	} else {
 		for _, v := range problems {
@@ -415,14 +419,20 @@ func changeProblemConfig(info []string, c *gin.Context) {
 	timeLimit, err := strconv.ParseInt(info[2], 10, 64)
 	if err != nil {
 		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
 	}
 	memoryLimit, err := strconv.ParseInt(info[3], 10, 64)
 	if err != nil {
 		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
 	}
 	submitFileLimit, err := strconv.ParseInt(info[4], 10, 64)
 	if err != nil {
 		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
 	}
 	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
 		Where(&db.Problems{ProblemName: info[1]}).
@@ -484,25 +494,25 @@ func sendNews(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"coontestId"}
-// func requestProblemsInfo(info []string, c *gin.Context) {
-// 	var response struct {
-// 		Status   string        `json:"status"`
-// 		Problems []db.Problems `json:"problems"`
-// 	}
-// 	response.Status = config.FAIL
-// 	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
-// 		Find(&response.Problems)
-// 	if result.Error != nil {
-// 		logger.Errorln(result.Error)
-// 	} else {
-// 		for i, _ := range response.Problems {
-// 			response.Problems[i].TestFiles = ""
-// 		}
-// 		response.Status = config.SUCCEED
-// 	}
-// 	c.JSON(http.StatusOK, response)
-// }
+// {"contestId"}
+func requestProblemsInfo(info []string, c *gin.Context) {
+	var response struct {
+		Status   string        `json:"status"`
+		Problems []db.Problems `json:"problems"`
+	}
+	response.Status = config.FAIL
+	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
+		Find(&response.Problems)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	} else {
+		for i, _ := range response.Problems {
+			response.Problems[i].TestFiles = ""
+		}
+		response.Status = config.SUCCEED
+	}
+	c.JSON(http.StatusOK, response)
+}
 
 // {"contestId"}
 func requestUsersInfo(info []string, c *gin.Context) {

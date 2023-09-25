@@ -1,13 +1,16 @@
 package user
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 
 	"github.com/LQQ4321/owo/config"
 	"github.com/LQQ4321/owo/db"
+	"github.com/LQQ4321/owo/judger"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -212,7 +215,7 @@ func submitCode(c *gin.Context) {
 		}
 		// 倘若已经ac，可以在submits表中记录提交，但是不需要在users表中记录
 		if !newUser.IsAccepted(problemId) {
-			newUser.UpdateStatus(problemId, config.SUBMIT_SUCCEED, submitTime)
+			newUser.UpdateStatusPre(problemId, config.SUBMIT_SUCCEED, submitTime)
 			result = tx.Table(db.GetTableName(contestId, config.USER_TABLE_SUFFIX)).
 				Updates(&newUser)
 			if result.Error != nil {
@@ -220,8 +223,9 @@ func submitCode(c *gin.Context) {
 			}
 		}
 		submitPath = config.ALL_CONTEST + contestId +
-			"/" + problemId + "/" + strconv.Itoa(submit.ID) +
-			"/" + strings.Split(file.Filename, ".")[1]
+			"/" + problemId + "/" + config.USER_SUBMIT_PATH +
+			"/" + strconv.Itoa(submit.ID) +
+			"." + strings.Split(file.Filename, ".")[1] //这里前端校验的时候多检查一点
 		if err := c.SaveUploadedFile(file, submitPath); err != nil {
 			return err
 		}
@@ -250,8 +254,112 @@ func submitCode(c *gin.Context) {
 		setInternalError(&oldUser, &submit, contestId, problemId)
 		return
 	}
-	// TODO 提交到judger
+	testList := strings.Split(problem.TestFiles, "#")
+	inputPaths := make([]string, 0)
+	hashValues := make([]string, 0)
+	for _, v := range testList {
+		li := strings.Split(v, "|")
+		// 这里的输入文件是按顺序传递过去的，judger好像也是按顺序传递回来的
+		inputPaths = append(inputPaths, config.JUDGER_SHARE_FILE+li[1])
+		hashValues = append(hashValues, li[3])
+	}
+	req := &judger.Request{
+		Time:           problem.TimeLimit,
+		Memory:         problem.MemoryLimit,
+		Language:       language,
+		SourceFilePath: config.JUDGER_SHARE_FILE + submitPath,
+		InputPath:      inputPaths,
+		Optional:       3,
+	}
+	if language == config.PYTHON3 {
+		req.Optional = 2
+	}
+	ch := worker.Submit(c.Request.Context(), req)
+	// 阻塞，等待judger回传结果
+	rt := <-ch
+	// 出现内部错误
+	if rt.Error != nil {
+		logger.Errorln(rt.Error)
+		setInternalError(&oldUser, &submit, contestId, problemId)
+		return
+	}
+	parseRes := dealJudgerResult(rt.Results, hashValues)
+	if parseRes[0] == config.SUBMIT_FAIL {
+		setInternalError(&oldUser, &submit, contestId, problemId)
+		return
+	}
+	problem.SubmitTotal++
+	if parseRes[0] == config.ACCEPTED {
+		parseRes[0] = config.FIRST_AC
+		problem.SubmitAc++
+	}
+	result = DB.Table(db.GetTableName(contestId, config.PROBLEM_TABLE_SUFFIX)).
+		Updates(&problem)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	}
+	if !newUser.IsAccepted(problemId) {
+		newUser.UpdateStatusSuf(problemId, parseRes[0])
+		result = DB.Table(db.GetTableName(contestId, config.USER_TABLE_SUFFIX)).
+			Updates(&newUser)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		}
+	}
+	submit.Status = parseRes[0]
+	submit.RunTime = parseRes[1]
+	submit.RunMemory = parseRes[2]
+	result = DB.Table(db.GetTableName(contestId, config.SUBMIT_TABLE_SUFFIX)).
+		Updates(&submit)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	}
+}
 
+// 处理judger返回的数据
+func dealJudgerResult(r []judger.Result, hashValues []string) []string {
+	// 使用平均值
+	var averageTime, averageMemory int64
+	for _, v := range r {
+		if v.Status != config.ACCEPTED { //取其中一个错误返回即可
+			return []string{v.Status, "0", "0"}
+		}
+		averageTime += v.Time
+		averageMemory += v.Memory
+
+	}
+	outputFileIds := make([]string, 0)
+	for _, v := range r {
+		if v.OutputFileId() == "" { //正常来说状态是Accepted就应该有输出文件id
+			logger.Errorln(fmt.Errorf("output file id parse error"))
+			return []string{config.SUBMIT_FAIL, "0", "0"} //如果没有输出文件的id，多半是解析那里就发生错误了
+		}
+		outputFileIds = append(outputFileIds, v.OutputFileId())
+	}
+	for i, v := range outputFileIds { //应该是按顺序返回对应的文件吧
+		h := judger.GenerateHashValue(config.SHARE_JUDGER + v)
+		if h == "" {
+			logger.Errorln(fmt.Errorf("hash value is null"))
+			return []string{config.SUBMIT_FAIL, "0", "0"}
+		}
+		if h != hashValues[i] {
+			return []string{config.WRONG_ANSWER, "0", "0"}
+		}
+	}
+	// 有没有可能subSubmit退出了，然后该协程也会强制退出，只不过是因为该协程在subSubmit退出之前就执行完了？？？
+	go func() { //删除比赛选手产生的输出文件(输出结果对应的文件一般比较大，而且用完以后用处不大，可以删除)
+		for _, v := range outputFileIds {
+			if err := os.Remove(config.SHARE_JUDGER + v); err != nil {
+				logger.Errorln(err)
+				return
+			}
+		}
+	}()
+	averageTime /= int64(len(r))
+	averageMemory /= int64(len(r))
+	return []string{config.ACCEPTED,
+		strconv.FormatInt(averageTime>>20, 10),   //ns -> ms
+		strconv.FormatInt(averageMemory>>20, 10)} //byte -> MB
 }
 
 // 如果发生了内部错误，那么应该将该次提交的状态设置为内部错误状态

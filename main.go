@@ -11,6 +11,7 @@ import (
 
 	_ "github.com/LQQ4321/owo/client" //别忘了初始化路由
 	"github.com/LQQ4321/owo/client/manager"
+	"github.com/LQQ4321/owo/client/user"
 	"github.com/LQQ4321/owo/config"
 	"github.com/LQQ4321/owo/db"
 	"github.com/LQQ4321/owo/judger"
@@ -33,6 +34,8 @@ func main() {
 	judger.JudgerInit(logger.Sugar())
 	db.MysqlInit(logger)
 	manager.ManagerInit(logger.Sugar())
+	user.UserInit(logger.Sugar(), work)
+	// TODO 接收到中断信号后我们才关闭该程序
 	time.Sleep(time.Hour * 3)
 }
 
