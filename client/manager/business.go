@@ -14,60 +14,39 @@ var (
 	logger *zap.SugaredLogger
 )
 
-var jsonFuncList []jsonFunc
-var formFuncList []formFunc
+var jsonFuncMap map[string]jsonFunc
+var formFuncMap map[string]formFunc
 
 func ManagerInit(loggerInstance *zap.SugaredLogger) {
 	DB = db.DB
 	logger = loggerInstance
 
-	jsonFuncList = make([]jsonFunc, 0)
-	jsonFuncList = append(jsonFuncList, managerOperate)
-	jsonFuncList = append(jsonFuncList, createANewContest)
-	jsonFuncList = append(jsonFuncList, deleteAContest)
-	jsonFuncList = append(jsonFuncList, createANewProblem)
-	jsonFuncList = append(jsonFuncList, deleteAProblem)
-	jsonFuncList = append(jsonFuncList, requestContestList)
-	jsonFuncList = append(jsonFuncList, requestProblemList)
-	jsonFuncList = append(jsonFuncList, changeContestConfig)
-	jsonFuncList = append(jsonFuncList, changeProblemConfig)
-	jsonFuncList = append(jsonFuncList, downloadPlayerList)
-	jsonFuncList = append(jsonFuncList, downloadSubmitCode)
-	jsonFuncList = append(jsonFuncList, sendNews)
-	jsonFuncList = append(jsonFuncList, requestUsersInfo)
-	jsonFuncList = append(jsonFuncList, requestSubmitsInfo)
-	jsonFuncList = append(jsonFuncList, requestNewsInfo)
+	jsonFuncMap = make(map[string]jsonFunc)
+	jsonFuncMap = map[string]jsonFunc{
+		"managerOperate":      managerOperate,
+		"createANewContest":   createANewContest,
+		"deleteAContest":      deleteAContest,
+		"createANewProblem":   createANewProblem,
+		"deleteAProblem":      deleteAProblem,
+		"requestContestList":  requestContestList,
+		"requestProblemList":  requestProblemList,
+		"changeContestConfig": changeContestConfig,
+		"changeProblemConfig": changeProblemConfig,
+		"downloadPlayerList":  downloadPlayerList,
+		"downloadSubmitCode":  downloadSubmitCode,
+		"sendNews":            sendNews,
+		"requestUsersInfo":    requestUsersInfo,
+		"requestSubmitsInfo":  requestSubmitsInfo,
+		"requestNewsInfo":     requestNewsInfo,
+	}
 
-	formFuncList = make([]formFunc, 0)
-	formFuncList = append(formFuncList, addUsersFromFile)
-	formFuncList = append(formFuncList, uploadPdfFile)
-	formFuncList = append(formFuncList, uploadIoFiles)
+	formFuncMap = make(map[string]formFunc)
+	formFuncMap = map[string]formFunc{
+		"addUsersFromFile": addUsersFromFile,
+		"uploadPdfFile":    uploadPdfFile,
+		"uploadIoFiles":    uploadIoFiles,
+	}
 }
-
-var (
-	jsonRequestList = []string{
-		"managerOperate",
-		"createANewContest",
-		"deleteAContest",
-		"createANewProblem",
-		"deleteAProblem",
-		"requestContestList",
-		"requestProblemList",
-		"changeContestConfig",
-		"changeProblemConfig",
-		"downloadPlayerList",
-		"downloadSubmitCode",
-		"sendNews",
-		"requestUsersInfo",
-		"requestSubmitsInfo",
-		"requestNewsInfo",
-	}
-	formRequestList = []string{
-		"addUsersFromFile",
-		"uploadPdfFile",
-		"uploadIoFiles",
-	}
-)
 
 type jsonFunc func([]string, *gin.Context)
 type formFunc func(*gin.Context)
@@ -82,21 +61,19 @@ func JsonRequest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	for i, f := range jsonFuncList {
-		if jsonRequestList[i] == request.RequestType {
-			f(request.Info, c)
-			break
-		}
+	if v, ok := jsonFuncMap[request.RequestType]; ok {
+		v(request.Info, c)
+	} else {
+		c.JSON(http.StatusNotFound, nil)
 	}
 }
 
 // handing requests in FORM format
 func FormRequest(c *gin.Context) {
 	requestType := c.Request.FormValue("requestType")
-	for i, f := range formFuncList {
-		if formRequestList[i] == requestType {
-			f(c)
-			break
-		}
+	if v, ok := formFuncMap[requestType]; ok {
+		v(c)
+	} else {
+		c.JSON(http.StatusNotFound, nil)
 	}
 }

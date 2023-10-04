@@ -89,6 +89,7 @@ func requestProblemsInfo(info []string, c *gin.Context) {
 		Problems []db.Problems `json:"problems"`
 	}
 	response.Status = config.FAIL
+	response.Problems = make([]db.Problems, 0)
 	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
 		Find(&response.Problems)
 	if result.Error != nil {
@@ -109,6 +110,7 @@ func requestUsersInfo(info []string, c *gin.Context) {
 		Users  []db.Users `json:"users"`
 	}
 	response.Status = config.FAIL
+	response.Users = make([]db.Users, 0)
 	result := DB.Table(db.GetTableName(info[0], config.USER_TABLE_SUFFIX)).
 		Find(&response.Users)
 	if result.Error != nil {
@@ -129,6 +131,7 @@ func requestSubmitsInfo(info []string, c *gin.Context) {
 		Submits []db.Submits `json:"submits"`
 	}
 	response.Status = config.FAIL
+	response.Submits = make([]db.Submits, 0)
 	result := DB.Table(db.GetTableName(info[0], config.SUBMIT_TABLE_SUFFIX)).
 		Where(&db.Submits{StudentNumber: info[1]}).
 		Find(&response.Submits)
@@ -147,6 +150,7 @@ func requestNewsInfo(info []string, c *gin.Context) {
 		News   []db.News `json:"news"`
 	}
 	response.Status = config.FAIL
+	response.News = make([]db.News, 0)
 	result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
 		Where(&db.News{IsManager: false, Identifier: info[1]}).
 		Or(&db.News{IsManager: true}).

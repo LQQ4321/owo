@@ -16,16 +16,16 @@ var (
 	worker judger.Worker
 )
 
-var jsonFuncList map[string]jsonFunc
-var formFuncList map[string]formFunc
+var jsonFuncMap map[string]jsonFunc
+var formFuncMap map[string]formFunc
 
 func UserInit(loggerInstance *zap.SugaredLogger, w judger.Worker) {
 	DB = db.DB
 	logger = loggerInstance
 	worker = w
 	// 跟map[string]*jsonFunc应该没有区别吧
-	jsonFuncList = make(map[string]jsonFunc)
-	jsonFuncList = map[string]jsonFunc{
+	jsonFuncMap = make(map[string]jsonFunc)
+	jsonFuncMap = map[string]jsonFunc{
 		"login":               login,
 		"sendNews":            sendNews,
 		"requestProblemsInfo": requestProblemsInfo,
@@ -36,8 +36,8 @@ func UserInit(loggerInstance *zap.SugaredLogger, w judger.Worker) {
 		"downloadPdfFile":     downloadPdfFile,
 	}
 
-	formFuncList = make(map[string]formFunc)
-	formFuncList = map[string]formFunc{
+	formFuncMap = make(map[string]formFunc)
+	formFuncMap = map[string]formFunc{
 		"submitCode": submitCode,
 	}
 }
@@ -55,7 +55,7 @@ func JsonRequest(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	if v, ok := jsonFuncList[request.RequestType]; ok {
+	if v, ok := jsonFuncMap[request.RequestType]; ok {
 		v(request.Info, c)
 	} else {
 		c.JSON(http.StatusNotFound, nil)
@@ -65,7 +65,7 @@ func JsonRequest(c *gin.Context) {
 // handing requests in FORM format
 func FormRequest(c *gin.Context) {
 	requestType := c.Request.FormValue("requestType")
-	if v, ok := formFuncList[requestType]; ok {
+	if v, ok := formFuncMap[requestType]; ok {
 		v(c)
 	} else {
 		c.JSON(http.StatusNotFound, nil)

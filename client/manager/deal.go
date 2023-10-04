@@ -332,6 +332,8 @@ func requestContestList(info []string, c *gin.Context) {
 		ContestList [][]string `json:"contestList"`
 	}
 	response.Status = config.FAIL
+	// 初始化好，这样前端就不会收到null了，只会收到[]
+	response.ContestList = make([][]string, 0)
 	var contests []db.Contests
 	// 所以说每次产生的result要不要关闭，毕竟是一个指针，应该不用吧
 	if err := DB.Model(&db.Contests{}).
@@ -362,6 +364,7 @@ func requestProblemList(info []string, c *gin.Context) {
 		ProblemList [][]string `json:"problemList"`
 	}
 	response.Status = config.FAIL
+	response.ProblemList = make([][]string, 0)
 	var problems []db.Problems
 	if err := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
 		Find(&problems).Error; err != nil {
@@ -539,6 +542,7 @@ func requestUsersInfo(info []string, c *gin.Context) {
 		Users  []db.Users `json:"users"`
 	}
 	response.Status = config.FAIL
+	response.Users = make([]db.Users, 0)
 	result := DB.Table(db.GetTableName(info[0], config.USER_TABLE_SUFFIX)).
 		Find(&response.Users)
 	if result.Error != nil {
@@ -557,6 +561,7 @@ func requestSubmitsInfo(info []string, c *gin.Context) {
 		Submits []db.Submits `json:"submits"`
 	}
 	response.Status = config.FAIL
+	response.Submits = make([]db.Submits, 0)
 	var highId int
 	var err error
 	if info[1] == config.LAST_ID {
@@ -598,6 +603,7 @@ func requestNewsInfo(info []string, c *gin.Context) {
 		News   []db.News `json:"news"`
 	}
 	response.Status = config.FAIL
+	response.News = make([]db.News, 0)
 	var err error
 	var highId int
 	if info[1] == config.LAST_ID {
@@ -744,7 +750,7 @@ func requestTestNil(info []string, c *gin.Context) {
 		List1  []string   `json:"list1"`
 		Lists1 [][]string `json:"lists1"`
 		List2  []string   `json:"list2"`
-		Lists2 [][]string `json:"lists2"`
+		Lists2 [][]string `json:"lists2"` //一般一维的值不是0，二维的值就不是空
 	}
 	response.List1 = make([]string, 0)
 	response.Lists1 = make([][]string, 0)
