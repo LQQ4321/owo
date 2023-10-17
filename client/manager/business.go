@@ -23,21 +23,22 @@ func ManagerInit(loggerInstance *zap.SugaredLogger) {
 
 	jsonFuncMap = make(map[string]jsonFunc)
 	jsonFuncMap = map[string]jsonFunc{
-		"managerOperate":      managerOperate,
-		"createANewContest":   createANewContest,
-		"deleteAContest":      deleteAContest,
-		"createANewProblem":   createANewProblem,
-		"deleteAProblem":      deleteAProblem,
-		"requestContestList":  requestContestList,
-		"requestProblemList":  requestProblemList,
-		"changeContestConfig": changeContestConfig,
-		"changeProblemConfig": changeProblemConfig,
-		"downloadPlayerList":  downloadPlayerList,
-		"downloadSubmitCode":  downloadSubmitCode,
-		"sendNews":            sendNews,
-		"requestUsersInfo":    requestUsersInfo,
-		"requestSubmitsInfo":  requestSubmitsInfo,
-		"requestNewsInfo":     requestNewsInfo,
+		"managerOperate":          managerOperate,
+		"createANewContest":       createANewContest,
+		"deleteAContest":          deleteAContest,
+		"createANewProblem":       createANewProblem,
+		"deleteAProblem":          deleteAProblem,
+		"requestContestList":      requestContestList,
+		"requestProblemList":      requestProblemList,
+		"changeContestConfig":     changeContestConfig,
+		"changeProblemConfig":     changeProblemConfig,
+		"downloadPlayerList":      downloadPlayerList,
+		"downloadSubmitCode":      downloadSubmitCode,
+		"sendNews":                sendNews,
+		"requestUsersInfo":        requestUsersInfo,
+		"requestSubmitsInfo":      requestSubmitsInfo,
+		"requestNewsInfo":         requestNewsInfo,
+		"createRandomContestData": createRandomContestData,
 	}
 
 	formFuncMap = make(map[string]formFunc)

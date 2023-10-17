@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"io/ioutil"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -20,6 +21,143 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
+
+var (
+	submitStatus = []string{"FirstAc", "Accepted", "Pending", "WrongAnswer"}
+)
+
+// 创造随机数据,尽量真实地模拟提交，数据量也大一些
+// {contestId,problemCount,userCount,submitCount,dateTime}指定为那场比赛模拟提交数据
+// 题目数
+func createRandomContestData(info []string, c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+	}
+	response.Status = config.FAIL
+	// problems table
+	problemNameList := []string{
+		"两数之和", "两数之差", "爬",
+		"起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞",
+		"哦哈哟学弟", "hello world !", "using namespace std;", "算竞顶真", "哦哈与哦学长", "hahahahahhahah",
+		"owowowowowowowowowowowowowowowowowowowo", "omomomomomomomom", "雨哦西",
+		"两数之和", "两数之差", "爬",
+		"起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞",
+		"哦哈哟学弟", "hello world !", "using namespace std;", "算竞顶真", "哦哈与哦学长", "hahahahahhahah",
+		"owowowowowowowowowowowowowowowowowowowo", "omomomomomomomom", "雨哦西",
+		"owowowowowowowowowowowowowowowowowowowo1", "omomomomomomomom1", "雨哦西1",
+		"owowowowowowowowowowowowowowowowowowowo1", "omomomomomomomom1", "雨哦西1",
+	}
+	problemCount, err := strconv.Atoi(info[1])
+	if err != nil {
+		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	problems := make([]db.Problems, 0)
+	for i := 0; i < problemCount; i++ {
+		problem := db.Problems{
+			ProblemName: problemNameList[i],
+			// 看一下exampleFiles是空字符串会怎么样，前端的dynamic会解释出错吗？
+		}
+		result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).Create(&problem)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+			c.JSON(http.StatusOK, response)
+			return
+		}
+		if i%6 == 0 {
+			result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).Delete(&problem)
+			if result.Error != nil {
+				logger.Errorln(result.Error)
+				c.JSON(http.StatusOK, response)
+				return
+			}
+		} else {
+			problems = append(problems, problem)
+		}
+	}
+	// users table
+	userCount, err := strconv.Atoi(info[2])
+	if err != nil {
+		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	users := make([]db.Users, userCount)
+	startUserId := 2007310430
+	for i := 0; i < userCount; i++ {
+		startUserId++
+		users[i].StudentNumber = strconv.Itoa(startUserId)
+		users[i].StudentName = problemNameList[rand.Int()%len(problemNameList)]
+		users[i].SchoolName = problemNameList[rand.Int()%len(problemNameList)]
+		users[i].Password = "123456"
+	}
+	// submits table
+	submitCount, err := strconv.Atoi(info[3])
+	if err != nil {
+		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	// 模拟选手的提交
+	for i := 0; i < submitCount; i++ {
+		userRandId := rand.Int() % userCount        //模拟提交的选手
+		problemRandId := rand.Int() % len(problems) //模拟提交的题目
+		submit := db.Submits{
+			StudentNumber: users[userRandId].StudentNumber,
+			SubmitTime:    generateRandDate(info[4]),
+			ProblemId:     strconv.Itoa(problems[problemRandId].ID),
+			Status:        getRandStatus(),
+		}
+		if !users[userRandId].IsAccepted(submit.ProblemId) {
+			users[userRandId].UpdateStatusPre(submit.ProblemId, submit.Status, submit.SubmitTime)
+		}
+		result := DB.Table(db.GetTableName(info[0], config.SUBMIT_TABLE_SUFFIX)).Create(&submit)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+			c.JSON(http.StatusOK, response)
+			return
+		}
+	}
+	result := DB.Table(db.GetTableName(info[0], config.USER_TABLE_SUFFIX)).Create(&users)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
+	} else {
+		response.Status = config.SUCCEED
+	}
+	c.JSON(http.StatusOK, response)
+}
+
+func getRandStatus() string {
+	num := rand.Int() % 100
+	if num == 0 {
+		return submitStatus[0]
+	} else if num < 40 {
+		return submitStatus[1]
+	} else if num == 40 {
+		return submitStatus[2]
+	}
+	return submitStatus[3]
+}
+
+// 生成随机时间
+func generateRandDate(dateTime string) string {
+	times := make([]int, 3)
+	times[0] = rand.Int() % 24
+	times[1] = rand.Int() % 60
+	times[2] = rand.Int() % 60
+	strTimes := make([]string, 3)
+	for i, _ := range times {
+		if times[i] < 10 {
+			strTimes[i] = "0" + strconv.Itoa(times[i])
+		} else {
+			strTimes[i] = strconv.Itoa(times[i])
+		}
+	}
+	return dateTime + " " + strings.Join(strTimes, ":")
+}
+
+// ==============================================================================================
 
 // {"login","root","root"}
 // {"addManager","liqiquan","123456"}

@@ -104,6 +104,12 @@ func requestProblemsInfo(info []string, c *gin.Context) {
 }
 
 // {"contestId"}
+// 有一个bug，就是如果选手最后一个小时才登录上去，那么他既不能请求排名数据也没有之前的排名数据，
+// 但是正常来说应该是可以得到最后一个小时前的排名数据的。
+// 有一个解决办法，就是从submits表里面解析数据，因为users表的status字段里有的数据，submits表里面都有，
+// 唯一的缺点就是submits表的数据太大了，而且还需要users表的studentNumber，studentName，schoolName字段
+// 才能最终构建出排名。但是显而易见，这个弥补的方法调用的情况还是比较少的，要满足最后一小时登录的条件，
+// 而且每名选手只会请求一次，所以消耗资源的情况其实还好
 func requestUsersInfo(info []string, c *gin.Context) {
 	var response struct {
 		Status string     `json:"status"`
