@@ -12,3 +12,4 @@ COPY ./ /go/server
 RUN go build -o owo .
 
 ENTRYPOINT ["/go/server/owo"]
+# 构建出来的容器太大了，应该只保留最后编译出来的程序

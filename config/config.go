@@ -5,8 +5,10 @@ const (
 	URL_PORT    = ":5051"
 	JUDGER_PORT = ":5050"
 	MYSQL_PORT  = ":3306"
+	REDIS_PORT  = ":6379"
 	JUDGER_PATH = "judger"
 	MYSQL_PATH  = "mysql"
+	REDIS_PATH  = "owo-redis"
 	JUDGER_DSN  = "http://" + JUDGER_PATH + JUDGER_PORT + "/run"
 	MYSQL_DSN   = "root:3515063609563648226@tcp(" +
 		MYSQL_PATH + MYSQL_PORT +

@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 )
 
+// 使用redis作为缓存的数据应该是需要大量请求的
 // {"contestId","studentNumber","password","loginTime"}
 func login(info []string, c *gin.Context) {
 	var response struct {
