@@ -1,21 +1,42 @@
 package user
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/LQQ4321/owo/config"
 	"github.com/LQQ4321/owo/db"
 	"github.com/LQQ4321/owo/judger"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"gorm.io/gorm"
 )
 
 // 使用redis作为缓存的数据应该是需要大量请求的
+// 阻塞一段时间，等待数据更新完成
+func wait(key string) ([]byte, error) {
+	for i := 0; i < 5; i++ {
+		data, err := db.RDB.Get(context.Background(), key).Bytes()
+		if err != nil && err != redis.Nil {
+			return data, err
+		} else if err == redis.Nil {
+			// 等待一段时间,指数增长
+			time.Sleep(time.Millisecond * 50 * (1 << i))
+		} else {
+			return data, nil
+		}
+	}
+	return []byte{}, fmt.Errorf("wait time too long")
+}
+
+// 因为每个选手只会请求一次，所以并发量不算太大，所以用不着redis
 // {"contestId","studentNumber","password","loginTime"}
 func login(info []string, c *gin.Context) {
 	var response struct {
@@ -91,15 +112,47 @@ func requestProblemsInfo(info []string, c *gin.Context) {
 	}
 	response.Status = config.FAIL
 	response.Problems = make([]db.Problems, 0)
-	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
-		Find(&response.Problems)
-	if result.Error != nil {
-		logger.Errorln(result.Error)
-	} else {
-		for i, _ := range response.Problems {
-			response.Problems[i].TestFiles = ""
+	// 更新数据的时间内，也会有其他请求，为了保证数据在一段时间内只更新一次，应该准备一个锁
+	// 将比赛编号和函数名拼接成一个键
+	key := info[0] + "_requestProblemsInfo"
+	// 将key加lock拼接成一个锁
+	lock := key + "_lock"
+	result := db.RDB.SetNX(context.Background(), lock, 1, config.DATA_SHORT_VALID_TIME)
+	if result.Err() != nil {
+		logger.Errorln(result.Err())
+	} else if result.Val() { //值设置成功，获取到锁,执行数据更新操作
+		result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
+			Find(&response.Problems)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			for i, _ := range response.Problems {
+				response.Problems[i].TestFiles = ""
+			}
+			data, err := json.Marshal(response.Problems)
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				err = db.RDB.Set(context.Background(), key, data, config.DATA_LONG_VALID_TIME).Err()
+				if err != nil {
+					logger.Errorln(err)
+				} else {
+					response.Status = config.SUCCEED
+				}
+			}
 		}
-		response.Status = config.SUCCEED
+	} else { //值已经存在，无法获取到锁,阻塞(这里是硬性等待)，等待数据更新完毕
+		data, err := wait(key)
+		if err != nil {
+			logger.Errorln(err)
+		} else {
+			err = json.Unmarshal(data, &response.Problems)
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				response.Status = config.SUCCEED
+			}
+		}
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -110,7 +163,7 @@ func requestProblemsInfo(info []string, c *gin.Context) {
 // 有一个解决办法，就是从submits表里面解析数据，因为users表的status字段里有的数据，submits表里面都有，
 // 唯一的缺点就是submits表的数据太大了，而且还需要users表的studentNumber，studentName，schoolName字段
 // 才能最终构建出排名。但是显而易见，这个弥补的方法调用的情况还是比较少的，要满足最后一小时登录的条件，
-// 而且每名选手只会请求一次，所以消耗资源的情况其实还好
+// 而且每名选手只会请求一次，所以消耗资源的情况其实还好(或者省事一点，直接不给请求排名数据，ps：谁让你比赛中途退出的)
 func requestUsersInfo(info []string, c *gin.Context) {
 	var response struct {
 		Status string     `json:"status"`
@@ -118,15 +171,45 @@ func requestUsersInfo(info []string, c *gin.Context) {
 	}
 	response.Status = config.FAIL
 	response.Users = make([]db.Users, 0)
-	result := DB.Table(db.GetTableName(info[0], config.USER_TABLE_SUFFIX)).
-		Find(&response.Users)
-	if result.Error != nil {
-		logger.Errorln(result.Error)
-	} else {
-		for i, _ := range response.Users {
-			response.Users[i].Password = ""
+	key := info[0] + "_requestUsersInfo"
+	// 将key加lock拼接成一个锁
+	lock := key + "_lock"
+	result := db.RDB.SetNX(context.Background(), lock, 1, config.DATA_SHORT_VALID_TIME)
+	if result.Err() != nil {
+		logger.Errorln(result.Err())
+	} else if result.Val() {
+		result := DB.Table(db.GetTableName(info[0], config.USER_TABLE_SUFFIX)).
+			Find(&response.Users)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			for i, _ := range response.Users {
+				response.Users[i].Password = ""
+			}
+			data, err := json.Marshal(response.Users)
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				err = db.RDB.Set(context.Background(), key, data, config.DATA_LONG_VALID_TIME).Err()
+				if err != nil {
+					logger.Errorln(err)
+				} else {
+					response.Status = config.SUCCEED
+				}
+			}
 		}
-		response.Status = config.SUCCEED
+	} else {
+		data, err := wait(key)
+		if err != nil {
+			logger.Errorln(err)
+		} else {
+			err = json.Unmarshal(data, &response.Users)
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				response.Status = config.SUCCEED
+			}
+		}
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -177,13 +260,34 @@ func downloadExampleFile(info []string, c *gin.Context) {
 		ExampleFile string `json:"exampleFile"`
 	}
 	response.Status = config.FAIL
-	// 路径已经知道了，直接将样例文件读取成字符串返回即可(文件不存在最多也就是报错，不会产生什么严重的后果)
-	content, err := ioutil.ReadFile(info[0])
-	if err != nil {
-		logger.Errorln(err)
-	} else {
-		response.ExampleFile = string(content)
-		response.Status = config.SUCCEED
+	key := info[0] + "_downloadExampleFile"
+	// 将key加lock拼接成一个锁
+	lock := key + "_lock"
+	result := db.RDB.SetNX(context.Background(), lock, 1, config.DATA_SHORT_VALID_TIME)
+	if result.Err() != nil {
+		logger.Errorln(result.Err())
+	} else if result.Val() {
+		// 路径已经知道了，直接将样例文件读取成字符串返回即可(文件不存在最多也就是报错，不会产生什么严重的后果)
+		content, err := ioutil.ReadFile(info[0])
+		if err != nil {
+			logger.Errorln(err)
+		} else {
+			err = db.RDB.Set(context.Background(), key, content, config.DATA_LONG_VALID_TIME).Err()
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				response.ExampleFile = string(content)
+				response.Status = config.SUCCEED
+			}
+		}
+	} else { //值已经存在，无法获取到锁,阻塞(这里是硬性等待)，等待数据更新完毕
+		data, err := wait(key)
+		if err != nil {
+			logger.Errorln(err)
+		} else {
+			response.ExampleFile = string(data)
+			response.Status = config.SUCCEED
+		}
 	}
 	c.JSON(http.StatusOK, response)
 }

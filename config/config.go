@@ -1,5 +1,7 @@
 package config
 
+import "time"
+
 // 容器间网络配置
 const (
 	URL_PORT    = ":5051"
@@ -62,5 +64,7 @@ const (
 
 // 其他常量
 const (
-	LAST_ID = "lastId"
+	LAST_ID               = "lastId"
+	DATA_LONG_VALID_TIME  = time.Minute //设置数据的有效时间
+	DATA_SHORT_VALID_TIME = time.Second * 30
 )

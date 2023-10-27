@@ -1,7 +1,6 @@
 package db
 
 import (
-	"context"
 	"errors"
 
 	"github.com/LQQ4321/owo/config"
@@ -15,7 +14,6 @@ var (
 	logger *zap.Logger
 	DB     *gorm.DB
 	RDB    *redis.Client
-	Ctx    context.Context
 )
 
 func MysqlInit(loggerInstance *zap.Logger) {
@@ -64,6 +62,5 @@ func MysqlInit(loggerInstance *zap.Logger) {
 		Password: "",
 		DB:       0,
 	})
-	Ctx = context.Background()
 	logger.Sugar().Infoln("redis init succeed !")
 }
