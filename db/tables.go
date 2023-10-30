@@ -18,9 +18,12 @@ type Contests struct {
 }
 
 type Managers struct {
-	ID          int    `gorm:"primaryKey"`
-	ManagerName string //管理员名称
-	Password    string //密码
+	ID            int    `gorm:"primaryKey"`
+	ManagerName   string //管理员名称
+	Password      string //密码
+	LastLoginTime string //最后一次登录的时间
+	IsLogin       bool   //当前是否处于登录状态
+	IsRoot        bool   //当前用户是否具有root权限
 }
 
 // 结构相同，表名不同
@@ -119,7 +122,7 @@ type Submits struct {
 	ID            int    `gorm:"primaryKey"`
 	StudentNumber string //唯一，可以关联查找，然后得到StudentName和SchoolName
 	SubmitTime    string //提交时间
-	ProblemId     string //题目名称
+	ProblemId     string //题目id
 	Language      string //语言
 	Status        string //状态
 	RunTime       string //单位ms

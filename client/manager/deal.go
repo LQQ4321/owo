@@ -162,8 +162,9 @@ func generateRandDate(dateTime string) string {
 // ==============================================================================================
 
 // {"login","root","root"}
-// {"addManager","liqiquan","123456"}
+// {"addManager","liqiquan","123456","true"}
 // {"deleteManager","liqiquan"}
+// {"updateManagerName","root","lqq"}
 // {"updatePassword","liqiquan","qwe"}
 // {"queryManagers"} return [{"liqiquan","123456","3"}]
 func managerOperate(info []string, c *gin.Context) {
@@ -187,8 +188,12 @@ func managerOperate(info []string, c *gin.Context) {
 			First(&db.Managers{})
 		if result.Error != nil {
 			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				isRoot := false
+				if info[3] == "true" {
+					isRoot = true
+				}
 				result = DB.Model(&db.Managers{}).
-					Create(&db.Managers{ManagerName: info[1], Password: info[2]})
+					Create(&db.Managers{ManagerName: info[1], Password: info[2], IsRoot: isRoot})
 				if result.Error != nil {
 					logger.Errorln(result.Error)
 				} else {
@@ -200,7 +205,7 @@ func managerOperate(info []string, c *gin.Context) {
 		} else {
 			logger.Errorln(fmt.Errorf("manager name : " + info[1] + "really exists"))
 		}
-	} else if info[0] == "deleteManager" {
+	} else if info[0] == "deleteManager" { //具有root权限的管理员一经创建无法删除
 		result := DB.Model(&db.Managers{}).
 			Where(&db.Managers{ManagerName: info[1]}).
 			Delete(&db.Managers{})
@@ -210,6 +215,22 @@ func managerOperate(info []string, c *gin.Context) {
 			}
 		} else {
 			response.Status = config.SUCCEED
+		}
+	} else if info[0] == "updateManagerName" {
+		result := DB.Model(&db.Managers{}).
+			Where(&db.Managers{ManagerName: info[2]}).
+			First(&db.Managers{})
+		if result.Error != nil {
+			if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+				result = DB.Model(&db.Managers{}).
+					Where(&db.Managers{ManagerName: info[1]}).
+					Updates(&db.Managers{ManagerName: info[2]})
+				if result.Error != nil {
+					logger.Errorln(result.Error)
+				} else {
+					response.Status = config.SUCCEED
+				}
+			}
 		}
 	} else if info[0] == "updatePassword" {
 		result := DB.Model(&db.Managers{}).
@@ -225,16 +246,18 @@ func managerOperate(info []string, c *gin.Context) {
 		}
 	} else if info[0] == "queryManagers" {
 		var response struct {
-			Status      string     `json:"status"`
-			ManagerList [][]string `json:"managerList"`
+			Status        string        `json:"status"`
+			ManagerList   []db.Managers `json:"managerList"`
+			ContestNumber []int         `json:"contestNumber"`
 		}
 		response.Status = config.FAIL
-		var managers []db.Managers
-		result := DB.Model(&db.Managers{}).Find(&managers)
+		response.ManagerList = make([]db.Managers, 0)
+		response.ContestNumber = make([]int, 0)
+		result := DB.Model(&db.Managers{}).Find(&response.ManagerList)
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		} else {
-			for _, v := range managers {
+			for _, v := range response.ManagerList {
 				var count int64
 				result = DB.Model(&db.Contests{}).
 					Where(&db.Contests{CreatorName: v.ManagerName}).
@@ -244,11 +267,7 @@ func managerOperate(info []string, c *gin.Context) {
 					c.JSON(http.StatusOK, response)
 					return
 				}
-				list := make([]string, 3)
-				list[0] = v.ManagerName
-				list[1] = v.Password
-				list[2] = strconv.Itoa(int(count))
-				response.ManagerList = append(response.ManagerList, list)
+				response.ContestNumber = append(response.ContestNumber, int(count))
 			}
 			response.Status = config.SUCCEED
 		}

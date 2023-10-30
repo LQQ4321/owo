@@ -41,13 +41,16 @@ func MysqlInit(loggerInstance *zap.Logger) {
 	if err != nil {
 		logger.Fatal("create Contests and Managers table fail : ", zap.Error(err))
 	}
+	// 原本判断是否有root管理员是检查有没有哪个管理员的名称是root的，现在改成检查有没有权限是root的，
+	// 因为要允许一开始的root改成别的名称,减少被sql注入的可能性
+	// (ps : root用户是不能够删除root用户的，创建了一个root用户以后，就只能一直存在了)
 	result := DB.Model(&Managers{}).
-		Where(&Managers{ManagerName: "root"}).
+		Where(&Managers{IsRoot: true}).
 		First(&Managers{})
 	if result.Error != nil {
 		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			result = DB.Model(&Managers{}).
-				Create(&Managers{ManagerName: "root", Password: "root"})
+				Create(&Managers{ManagerName: "root", Password: "root", IsRoot: true})
 			if result.Error != nil {
 				logger.Fatal("create root role fail : ", zap.Error(result.Error))
 			}
