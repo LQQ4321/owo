@@ -161,7 +161,8 @@ func generateRandDate(dateTime string) string {
 
 // ==============================================================================================
 
-// {"login","root","root"}
+// {"login","root","root","lastLoginTime"}
+// {"logout","root"}
 // {"addManager","liqiquan","123456","true"}
 // {"deleteManager","liqiquan"}
 // {"updateManagerName","root","lqq"}
@@ -174,9 +175,32 @@ func managerOperate(info []string, c *gin.Context) {
 	}
 	response.Status = config.FAIL
 	if info[0] == "login" {
+		var response struct {
+			Status  string      `json:"status"`
+			Manager db.Managers `json:"manager"`
+		}
+		response.Status = config.FAIL
 		result := DB.Model(&db.Managers{}).
 			Where(&db.Managers{ManagerName: info[1], Password: info[2]}).
-			First(&db.Managers{}) //临时创建一个指针变量，将查询到的值放入其中，然后一段时间后被gc回收
+			First(&response.Manager) //临时创建一个指针变量，将查询到的值放入其中，然后一段时间后被gc回收
+		if result.Error != nil {
+			logger.Errorln(result.Error)
+		} else {
+			result = DB.Model(&db.Managers{}).
+				Where(&db.Managers{ManagerName: info[1]}).
+				Updates(&db.Managers{IsLogin: true, LastLoginTime: info[3]})
+			if result.Error != nil {
+				logger.Errorln(result.Error)
+			} else {
+				response.Status = config.SUCCEED
+			}
+		}
+		c.JSON(http.StatusOK, response)
+		return
+	} else if info[0] == "logout" {
+		result := DB.Model(&db.Managers{}).
+			Where(&db.Managers{ManagerName: info[1]}).
+			Updates(&db.Managers{IsLogin: false})
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		} else {
