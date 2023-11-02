@@ -304,7 +304,8 @@ func managerOperate(info []string, c *gin.Context) {
 // {"广西大学第一届校赛","2020-7-25 15:29:10","root"}
 func createANewContest(info []string, c *gin.Context) {
 	var response struct {
-		Status string `json:"status"`
+		Status    string `json:"status"`
+		ContestId int    `json:"contestId"`
 	}
 	response.Status = config.FAIL
 	// 是不是First导致原本的数据消失了
@@ -324,6 +325,7 @@ func createANewContest(info []string, c *gin.Context) {
 			if result.Error != nil {
 				logger.Errorln(result.Error)
 			} else {
+				response.ContestId = contest.ID
 				err := DB.Transaction(func(tx *gorm.DB) error {
 					err := tx.Table(db.GetTableName(contest.ID, config.USER_TABLE_SUFFIX)).
 						AutoMigrate(&db.Users{})
@@ -501,33 +503,32 @@ func deleteAProblem(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"liqiquan"}
+// {"liqiquan","true"}//获取该名管理员所创造的比赛列表数据
 func requestContestList(info []string, c *gin.Context) {
 	var response struct {
-		Status      string     `json:"status"`
-		ContestList [][]string `json:"contestList"`
+		Status      string        `json:"status"`
+		ContestList []db.Contests `json:"contestList"`
 	}
 	response.Status = config.FAIL
 	// 初始化好，这样前端就不会收到null了，只会收到[]
-	response.ContestList = make([][]string, 0)
-	var contests []db.Contests
+	response.ContestList = make([]db.Contests, 0)
 	// 所以说每次产生的result要不要关闭，毕竟是一个指针，应该不用吧
-	if err := DB.Model(&db.Contests{}).
-		Where(&db.Contests{CreatorName: info[0]}).
-		Find(&contests).Error; err != nil {
+	var err error
+	if info[1] == "true" {
+		err = DB.Model(&db.Contests{}).
+			Find(&response.ContestList).Error
+	} else {
+		err = DB.Model(&db.Contests{}).
+			Where(&db.Contests{CreatorName: info[0]}).
+			Find(&response.ContestList).Error
+	}
+	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			response.ContestList = make([][]string, 0)
 			response.Status = config.SUCCEED
 		} else {
 			logger.Errorln(err)
 		}
 	} else {
-		for _, v := range contests {
-			// 话说原本response.ContestList原本是nil，不需要make初始化的吗？(经过测试好像不需要)
-			response.ContestList = append(response.ContestList,
-				[]string{strconv.Itoa(v.ID), v.ContestName,
-					v.CreatorName, v.CreateTime, v.StartTime, v.EndTime})
-		}
 		response.Status = config.SUCCEED
 	}
 	c.JSON(http.StatusOK, response)
@@ -567,12 +568,31 @@ func requestProblemList(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// 这里使用的是contestId作为唯一标识符，所以比赛名称理论上是可以重复的,
+// 但是为了避免歧义，最好还是不要重名
 // {"contestId","ICPC-ACM 第五十九届","2023-10-10 11:00:00","2023-10-10 16:00:00"}
 func changeContestConfig(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
+	// 避免比赛名称重复的问题
+	var tempContest db.Contests
+	err := DB.Model(&db.Contests{}).
+		Where(&db.Contests{ContestName: info[1]}).
+		First(&tempContest).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
+	} else if err == nil {
+		if strconv.Itoa(tempContest.ID) != info[0] &&
+			tempContest.ContestName == info[1] {
+			logger.Errorln(fmt.Errorf("contest name : " + info[1] + "really exists"))
+			c.JSON(http.StatusOK, response)
+			return
+		}
+	}
 	contestId, err := strconv.Atoi(info[0])
 	if err != nil {
 		logger.Errorln(err)
