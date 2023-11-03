@@ -41,7 +41,6 @@ type Problems struct {
 	//比赛期间经常会改变的数据，需要缓存
 	SubmitTotal int64 //提交该题目的人数
 	SubmitAc    int64 //通过该题目的人数
-
 }
 
 type Users struct {

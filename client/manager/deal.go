@@ -419,7 +419,8 @@ func deleteAContest(info []string, c *gin.Context) {
 // {"contestId","两数之和"}
 func createANewProblem(info []string, c *gin.Context) {
 	var response struct {
-		Status string `json:"status"`
+		Status     string      `json:"status"`
+		NewProblem db.Problems `json:"newProblem"`
 	}
 	response.Status = config.FAIL
 	result := DB.Table(db.GetTableName(info[0],
@@ -441,6 +442,7 @@ func createANewProblem(info []string, c *gin.Context) {
 				if result.Error != nil {
 					return result.Error
 				}
+				response.NewProblem = problem
 				// 创建文件夹
 				problemDir := config.ALL_CONTEST +
 					info[0] + "/" +
@@ -465,39 +467,44 @@ func createANewProblem(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","两数之和"}
+// {"contestId","problemId"}
 func deleteAProblem(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
-	var problem db.Problems
-	result := DB.Table(db.GetTableName(info[0],
-		config.PROBLEM_TABLE_SUFFIX)).
-		Where(&db.Problems{ProblemName: info[1]}).
-		First(&problem)
-	if result.Error != nil {
-		logger.Errorln(result.Error)
+	problemId, err := strconv.Atoi(info[1])
+	if err != nil {
+		logger.Errorln(err)
 	} else {
-		err := DB.Transaction(func(tx *gorm.DB) error {
-			result := tx.Table(db.GetTableName(info[0],
-				config.PROBLEM_TABLE_SUFFIX)).
-				Delete(&problem)
-			if result.Error != nil {
-				return result.Error
-			}
-			problemDir := config.ALL_CONTEST +
-				info[0] + "/" +
-				strconv.Itoa(problem.ID)
-			if err := os.RemoveAll(problemDir); err != nil {
-				return err
-			}
-			return nil
-		})
-		if err != nil {
-			logger.Errorln(err)
+		var problem db.Problems
+		result := DB.Table(db.GetTableName(info[0],
+			config.PROBLEM_TABLE_SUFFIX)).
+			Where(&db.Problems{ID: problemId}).
+			First(&problem)
+		if result.Error != nil {
+			logger.Errorln(result.Error)
 		} else {
-			response.Status = config.SUCCEED
+			err := DB.Transaction(func(tx *gorm.DB) error {
+				result := tx.Table(db.GetTableName(info[0],
+					config.PROBLEM_TABLE_SUFFIX)).
+					Delete(&problem)
+				if result.Error != nil {
+					return result.Error
+				}
+				problemDir := config.ALL_CONTEST +
+					info[0] + "/" +
+					strconv.Itoa(problem.ID)
+				if err := os.RemoveAll(problemDir); err != nil {
+					return err
+				}
+				return nil
+			})
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				response.Status = config.SUCCEED
+			}
 		}
 	}
 	c.JSON(http.StatusOK, response)
@@ -537,31 +544,21 @@ func requestContestList(info []string, c *gin.Context) {
 // {"contestId"}
 func requestProblemList(info []string, c *gin.Context) {
 	var response struct {
-		Status      string     `json:"status"`
-		ProblemList [][]string `json:"problemList"`
+		Status      string        `json:"status"`
+		ProblemList []db.Problems `json:"problemList"`
 	}
 	response.Status = config.FAIL
-	response.ProblemList = make([][]string, 0)
-	var problems []db.Problems
+	response.ProblemList = make([]db.Problems, 0)
 	if err := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
-		Find(&problems).Error; err != nil {
+		Find(&response.ProblemList).Error; err != nil {
 		logger.Errorln(err)
 	} else {
-		for _, v := range problems {
-			pdfFile := "false"
-			ioFiles := "false"
-			if v.Pdf {
-				pdfFile = "true"
+		for i := 0; i < len(response.ProblemList); i++ {
+			// 只需要知道测试文件有没有提交，具体的内容不需要知道，为了减小传输的数据，可以适当删减
+			response.ProblemList[i].ExampleFiles = ""
+			if response.ProblemList[i].TestFiles != "" {
+				response.ProblemList[i].TestFiles = "true"
 			}
-			if v.TestFiles != "" {
-				ioFiles = "true"
-			}
-			response.ProblemList = append(response.ProblemList,
-				[]string{v.ProblemName,
-					strconv.FormatInt(v.TimeLimit, 10),
-					strconv.FormatInt(v.MemoryLimit, 10),
-					strconv.FormatInt(v.MaxFileLimit, 10),
-					pdfFile, ioFiles})
 		}
 		response.Status = config.SUCCEED
 	}
@@ -585,13 +582,10 @@ func changeContestConfig(info []string, c *gin.Context) {
 		logger.Errorln(err)
 		c.JSON(http.StatusOK, response)
 		return
-	} else if err == nil {
-		if strconv.Itoa(tempContest.ID) != info[0] &&
-			tempContest.ContestName == info[1] {
-			logger.Errorln(fmt.Errorf("contest name : " + info[1] + "really exists"))
-			c.JSON(http.StatusOK, response)
-			return
-		}
+	} else if err == nil && strconv.Itoa(tempContest.ID) != info[0] {
+		logger.Errorln(fmt.Errorf("contest name : " + info[1] + "really exists"))
+		c.JSON(http.StatusOK, response)
+		return
 	}
 	contestId, err := strconv.Atoi(info[0])
 	if err != nil {
@@ -610,33 +604,51 @@ func changeContestConfig(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","两数之和","100","128","10"}
+// {"contestId","problemId","两数之和","100","128","10"}
 func changeProblemConfig(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
-	timeLimit, err := strconv.ParseInt(info[2], 10, 64)
+	var tempProblem db.Problems
+	err := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
+		Where(&db.Problems{ProblemName: info[2]}).First(&tempProblem).Error
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
+	} else if err == nil && strconv.Itoa(tempProblem.ID) != info[1] {
+		logger.Errorln(fmt.Errorf("problem name : " + info[2] + "really exists"))
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	problemId, err := strconv.Atoi(info[1])
 	if err != nil {
 		logger.Errorln(err)
 		c.JSON(http.StatusOK, response)
 		return
 	}
-	memoryLimit, err := strconv.ParseInt(info[3], 10, 64)
+	timeLimit, err := strconv.ParseInt(info[3], 10, 64)
 	if err != nil {
 		logger.Errorln(err)
 		c.JSON(http.StatusOK, response)
 		return
 	}
-	submitFileLimit, err := strconv.ParseInt(info[4], 10, 64)
+	memoryLimit, err := strconv.ParseInt(info[4], 10, 64)
+	if err != nil {
+		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	submitFileLimit, err := strconv.ParseInt(info[5], 10, 64)
 	if err != nil {
 		logger.Errorln(err)
 		c.JSON(http.StatusOK, response)
 		return
 	}
 	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
-		Where(&db.Problems{ProblemName: info[1]}).
-		Updates(&db.Problems{TimeLimit: timeLimit,
+		Where(&db.Problems{ID: problemId}).
+		Updates(&db.Problems{ProblemName: info[2], TimeLimit: timeLimit,
 			MemoryLimit: memoryLimit, MaxFileLimit: submitFileLimit})
 	if result.Error != nil {
 		logger.Errorln(result.Error)
@@ -937,16 +949,22 @@ func addUsersFromFile(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","problemName","file"}
+// {"contestId","problemId","file"}
 func uploadPdfFile(c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
 	contestId := c.Request.FormValue("contestId")
-	problemName := c.Request.FormValue("problemName")
-	if contestId == "" || problemName == "" {
+	problemId := c.Request.FormValue("problemId")
+	if contestId == "" || problemId == "" {
 		logger.Errorln("parse field fail")
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	problemNumId, err := strconv.Atoi(problemId)
+	if err != nil {
+		logger.Errorln("problem id is not a number")
 		c.JSON(http.StatusOK, response)
 		return
 	}
@@ -956,7 +974,7 @@ func uploadPdfFile(c *gin.Context) {
 	} else {
 		var problem db.Problems
 		result := DB.Table(db.GetTableName(contestId, config.PROBLEM_TABLE_SUFFIX)).
-			Where(&db.Problems{ProblemName: problemName}).
+			Where(&db.Problems{ID: problemNumId}).
 			First(&problem)
 		if result.Error != nil {
 			logger.Errorln(result.Error)
@@ -988,14 +1006,25 @@ func uploadPdfFile(c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","problemName","file"}
+// {"contestId","problemId","file"}
 func uploadIoFiles(c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
 	contestId := c.Request.FormValue("contestId")
-	problemName := c.Request.FormValue("problemName")
+	problemId := c.Request.FormValue("problemId")
+	if contestId == "" || problemId == "" {
+		logger.Errorln("parse field fail")
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	problemNumId, err := strconv.Atoi(problemId)
+	if err != nil {
+		logger.Errorln("problem id is not a number")
+		c.JSON(http.StatusOK, response)
+		return
+	}
 	file, err := c.FormFile("file")
 	if err != nil {
 		logger.Errorln(err)
@@ -1003,7 +1032,7 @@ func uploadIoFiles(c *gin.Context) {
 		var problem db.Problems
 		result := DB.Table(
 			db.GetTableName(contestId, config.PROBLEM_TABLE_SUFFIX)).
-			Where(&db.Problems{ProblemName: problemName}).
+			Where(&db.Problems{ID: problemNumId}).
 			First(&problem)
 		if result.Error != nil {
 			logger.Errorln(result.Error)
