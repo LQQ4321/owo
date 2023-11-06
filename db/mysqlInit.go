@@ -35,7 +35,7 @@ func MysqlInit(loggerInstance *zap.Logger) {
 	// 报错：Error 1046 (3D000): No database selected
 	// DB = DB.Exec("USE online_judge")
 	// if DB.Error != nil {
-	// 	logger.Fatal("unable to use the database online_judge :", zap.Error(err))
+	// 	logger.Fatal("unable to use the database online_judge :", zap.Error(DB.Error))
 	// }
 	err = DB.AutoMigrate(&Contests{}, &Managers{})
 	if err != nil {

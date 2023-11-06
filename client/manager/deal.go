@@ -604,43 +604,32 @@ func changeContestConfig(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","problemId","两数之和","100","128","10"}
+// 不支持修改题目名称
+// {"contestId","problemId","100","128","10"}
 func changeProblemConfig(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
-	var tempProblem db.Problems
-	err := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
-		Where(&db.Problems{ProblemName: info[2]}).First(&tempProblem).Error
-	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		logger.Errorln(err)
-		c.JSON(http.StatusOK, response)
-		return
-	} else if err == nil && strconv.Itoa(tempProblem.ID) != info[1] {
-		logger.Errorln(fmt.Errorf("problem name : " + info[2] + "really exists"))
-		c.JSON(http.StatusOK, response)
-		return
-	}
 	problemId, err := strconv.Atoi(info[1])
 	if err != nil {
 		logger.Errorln(err)
 		c.JSON(http.StatusOK, response)
 		return
 	}
-	timeLimit, err := strconv.ParseInt(info[3], 10, 64)
+	timeLimit, err := strconv.ParseInt(info[2], 10, 64)
 	if err != nil {
 		logger.Errorln(err)
 		c.JSON(http.StatusOK, response)
 		return
 	}
-	memoryLimit, err := strconv.ParseInt(info[4], 10, 64)
+	memoryLimit, err := strconv.ParseInt(info[3], 10, 64)
 	if err != nil {
 		logger.Errorln(err)
 		c.JSON(http.StatusOK, response)
 		return
 	}
-	submitFileLimit, err := strconv.ParseInt(info[5], 10, 64)
+	submitFileLimit, err := strconv.ParseInt(info[4], 10, 64)
 	if err != nil {
 		logger.Errorln(err)
 		c.JSON(http.StatusOK, response)
@@ -648,7 +637,7 @@ func changeProblemConfig(info []string, c *gin.Context) {
 	}
 	result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).
 		Where(&db.Problems{ID: problemId}).
-		Updates(&db.Problems{ProblemName: info[2], TimeLimit: timeLimit,
+		Updates(&db.Problems{TimeLimit: timeLimit,
 			MemoryLimit: memoryLimit, MaxFileLimit: submitFileLimit})
 	if result.Error != nil {
 		logger.Errorln(result.Error)
