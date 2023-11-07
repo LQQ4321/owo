@@ -42,12 +42,6 @@ func createRandomContestData(info []string, c *gin.Context) {
 		"起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞",
 		"哦哈哟学弟", "hello world !", "using namespace std;", "算竞顶真", "哦哈与哦学长", "hahahahahhahah",
 		"owowowowowowowowowowowowowowowowowowowo", "omomomomomomomom", "雨哦西",
-		"两数之和", "两数之差", "爬",
-		"起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞",
-		"哦哈哟学弟", "hello world !", "using namespace std;", "算竞顶真", "哦哈与哦学长", "hahahahahhahah",
-		"owowowowowowowowowowowowowowowowowowowo", "omomomomomomomom", "雨哦西",
-		"owowowowowowowowowowowowowowowowowowowo1", "omomomomomomomom1", "雨哦西1",
-		"owowowowowowowowowowowowowowowowowowowo1", "omomomomomomomom1", "雨哦西1",
 	}
 	problemCount, err := strconv.Atoi(info[1])
 	if err != nil {
@@ -750,39 +744,29 @@ func requestUsersInfo(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","users.id"}//每次获取的20条数据
-// 第一次请求的话,users.id = lastId,否则就是一个数字
+// {"contestId","statusId"}
 func requestSubmitsInfo(info []string, c *gin.Context) {
 	var response struct {
 		Status  string       `json:"status"`
 		Submits []db.Submits `json:"submits"`
+		Users   []db.Users   `json:"users"`
 	}
 	response.Status = config.FAIL
 	response.Submits = make([]db.Submits, 0)
-	var highId int
-	var err error
-	if info[1] == config.LAST_ID {
-		var submit db.Submits
-		err = DB.Table(db.GetTableName(info[0], config.SUBMIT_TABLE_SUFFIX)).
-			Order("id desc").
-			First(&submit).Error
-		if err == nil {
-			highId = submit.ID
-		}
-	} else {
-		// 这一步还可以顺便防范一下sql注入
-		highId, err = strconv.Atoi(info[1])
-	}
+	response.Users = make([]db.Users, 0)
+	statusId, err := strconv.Atoi(info[1])
 	if err != nil {
 		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	result := DB.Table(db.GetTableName(info[0], config.SUBMIT_TABLE_SUFFIX)).
+		Where("id > ?", statusId).Find(&response.Submits)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
 	} else {
-		lowId := highId - 21
-		if lowId < 0 {
-			lowId = 0
-		}
-		result := DB.Table(db.GetTableName(info[0], config.SUBMIT_TABLE_SUFFIX)).
-			Where("id > ? AND id < ?", lowId, highId).
-			Find(&response.Submits)
+		result = DB.Table(db.GetTableName(info[0], config.USER_TABLE_SUFFIX)).
+			Select("student_number", "student_name").Find(&response.Users)
 		if result.Error != nil {
 			logger.Errorln(result.Error)
 		} else {
