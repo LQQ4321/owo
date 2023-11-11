@@ -26,6 +26,7 @@ import (
 // =================================后端脚本，创建随机数据========================================
 var (
 	submitStatus = []string{"FirstAc", "Accepted", "Pending", "WrongAnswer"}
+	languages    = []string{"c", "c++", "golang", "java", "python3"}
 )
 
 // 创造随机数据,尽量真实地模拟提交，数据量也大一些
@@ -38,10 +39,12 @@ func createRandomContestData(info []string, c *gin.Context) {
 	response.Status = config.FAIL
 	// problems table
 	problemNameList := []string{
-		"两数之和", "两数之差", "爬",
+		"两数之和", "两数之差", "两数之积", "两数之余", "两数之商", "哦哈哟学弟", "哦哈哟学长",
 		"起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞起飞",
-		"哦哈哟学弟", "hello world !", "using namespace std;", "算竞顶真", "哦哈与哦学长", "hahahahahhahah",
-		"owowowowowowowowowowowowowowowowowowowo", "omomomomomomomom", "雨哦西",
+		"哦哈哟", "hello world !", "using namespace std;", "算竞顶真", "小西的排序", "最长上升子序列",
+		"owowowowowowowowowowowowowowowowowowowo", "owo", "回文串", "通话记录", "判断升序",
+		"我家还蛮大的", "不要了啦杰哥", "复数加法", "小西的乘法表", "我是铸币", "矩形加法", "矩形除法",
+		"anonymous", "LQQ", "公式计算", "诶哟你干嘛", "ikun", "我不是ikun", "你是ikun吗", "好吧我是",
 	}
 	problemCount, err := strconv.Atoi(info[1])
 	if err != nil {
@@ -53,6 +56,7 @@ func createRandomContestData(info []string, c *gin.Context) {
 	for i := 0; i < problemCount; i++ {
 		problem := db.Problems{
 			ProblemName: problemNameList[i],
+
 			// 看一下exampleFiles是空字符串会怎么样，前端的dynamic会解释出错吗？
 		}
 		result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).Create(&problem)
@@ -61,6 +65,7 @@ func createRandomContestData(info []string, c *gin.Context) {
 			c.JSON(http.StatusOK, response)
 			return
 		}
+		// 测试不连续的题目主键是否会有bug
 		if i%6 == 0 {
 			result := DB.Table(db.GetTableName(info[0], config.PROBLEM_TABLE_SUFFIX)).Delete(&problem)
 			if result.Error != nil {
@@ -80,13 +85,14 @@ func createRandomContestData(info []string, c *gin.Context) {
 		return
 	}
 	users := make([]db.Users, userCount)
-	startUserId := 2007310430
+	startUserId := 2007310431
 	for i := 0; i < userCount; i++ {
 		startUserId++
 		users[i].StudentNumber = strconv.Itoa(startUserId)
 		users[i].StudentName = problemNameList[rand.Int()%len(problemNameList)]
 		users[i].SchoolName = problemNameList[rand.Int()%len(problemNameList)]
 		users[i].Password = "123456"
+		users[i].LoginTime = generateRandDate(info[4])
 	}
 	// submits table
 	submitCount, err := strconv.Atoi(info[3])
@@ -104,6 +110,10 @@ func createRandomContestData(info []string, c *gin.Context) {
 			SubmitTime:    generateRandDate(info[4]),
 			ProblemId:     strconv.Itoa(problems[problemRandId].ID),
 			Status:        getRandStatus(),
+			Language:      languages[rand.Int()%len(languages)],
+			RunTime:       strconv.Itoa(rand.Int() % 1000),
+			RunMemory:     strconv.Itoa(rand.Int() % 256),
+			FileSize:      strconv.Itoa(rand.Int() % 50),
 		}
 		if !users[userRandId].IsAccepted(submit.ProblemId) {
 			users[userRandId].UpdateStatusPre(submit.ProblemId, submit.Status, submit.SubmitTime)
@@ -819,6 +829,69 @@ func requestNewsInfo(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
+// {changeUserInfo : contestId,userId,studentName,schoolName,studentNumber,password}
+// {deleteAUser : contestId,userId}
+// {createAUser : contestId,studentName,schoolName,studentNumber,password}
+func userOperate(info []string, c *gin.Context) {
+	var response struct {
+		Status string `json:"status"`
+		UserId int    `json:"userId"`
+	}
+	response.Status = config.FAIL
+	if info[0] == "changeUserInfo" {
+		userId, err := strconv.Atoi(info[2])
+		if err != nil {
+			logger.Errorln(err)
+		} else {
+			err = DB.Table(db.GetTableName(info[1], config.USER_TABLE_SUFFIX)).
+				Where(&db.Users{ID: userId}).
+				Updates(&db.Users{StudentName: info[3], SchoolName: info[4],
+					StudentNumber: info[5], Password: info[6]}).Error
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				response.Status = config.SUCCEED
+			}
+		}
+	} else if info[0] == "deleteAUser" {
+		userId, err := strconv.Atoi(info[2])
+		if err != nil {
+			logger.Errorln(err)
+		} else {
+			err = DB.Table(db.GetTableName(info[1], config.USER_TABLE_SUFFIX)).
+				Where(&db.Users{ID: userId}).Delete(&db.Users{}).Error
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				response.Status = config.SUCCEED
+			}
+		}
+	} else if info[0] == "createAUser" {
+		err := DB.Table(db.GetTableName(info[1], config.USER_TABLE_SUFFIX)).
+			Where(&db.Users{StudentNumber: info[4]}).
+			First(&db.Users{}).Error
+		if err != nil {
+			user := db.Users{StudentName: info[2], SchoolName: info[3],
+				StudentNumber: info[4], Password: info[5]}
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				err = DB.Table(db.GetTableName(info[1], config.USER_TABLE_SUFFIX)).
+					Create(&user).Error
+				if err != nil {
+					logger.Errorln(err)
+				} else {
+					response.UserId = user.ID
+					response.Status = config.SUCCEED
+				}
+			} else {
+				logger.Errorln(err)
+			}
+		} else {
+			logger.Errorln(fmt.Errorf("studentNumber already exist"))
+		}
+	}
+	c.JSON(http.StatusOK, response)
+}
+
 // 测试没有赋值的成员，返回到前端后的值
 func requestTestNil(info []string, c *gin.Context) {
 	/*
@@ -897,6 +970,7 @@ func addUsersFromFile(c *gin.Context) {
 				if flag {
 					continue
 				}
+				// 这里消耗的内存感觉有点大呀，一个个存的话可能消耗的少一点
 				users = append(users, db.Users{
 					StudentNumber: userInfo[0],
 					StudentName:   userInfo[1],
@@ -905,10 +979,15 @@ func addUsersFromFile(c *gin.Context) {
 				})
 			}
 			err := DB.Transaction(func(tx *gorm.DB) error {
-				if result := tx.Table(
+				if err := tx.Raw("DELETE FROM ?",
 					db.GetTableName(contestId, config.USER_TABLE_SUFFIX)).
-					Create(&users); result.Error != nil {
-					return result.Error
+					Error; err != nil {
+					return err
+				}
+				if err := tx.Table(
+					db.GetTableName(contestId, config.USER_TABLE_SUFFIX)).
+					Create(&users).Error; err != nil {
+					return err
 				}
 				return nil
 			})

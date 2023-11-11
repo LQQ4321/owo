@@ -39,6 +39,7 @@ func ManagerInit(loggerInstance *zap.SugaredLogger) {
 		"requestSubmitsInfo":      requestSubmitsInfo,
 		"requestNewsInfo":         requestNewsInfo,
 		"createRandomContestData": createRandomContestData,
+		"userOperate":             userOperate,
 	}
 
 	formFuncMap = make(map[string]formFunc)
