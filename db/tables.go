@@ -130,11 +130,15 @@ type Submits struct {
 }
 
 type News struct {
-	ID         int    `gorm:"primaryKey"`
-	IsManager  bool   //发送该条消息的人员类型，管理者或者选手,默认是false，也就是默认选手
-	Identifier string //发送该条消息的人员标识，managerName或者studentNumber
-	Text       string //发送的文本信息
-	SendTime   string //发送时间
+	ID            int    `gorm:"primaryKey"`
+	IsManager     bool   //发送该条消息的人员类型，管理者或者选手,默认是false，也就是默认选手
+	ManagerName   string //管理员姓名
+	ResponseNewId string //管理员回复选手的信息id，仅限管理员(0表示不是针对某条选手信息)
+	StudentNumber string //选手id
+	StudentName   string //选手姓名
+	Text          string //发送的文本信息
+	SendTime      string //发送时间
+	Status        int    //当前消息的处理状态，仅限于选手(0 已回复 1 未回复 2 忽略)
 }
 
 // 第一个参数接收int和string类型的值

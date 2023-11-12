@@ -84,17 +84,19 @@ func login(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","studentNumber","text",sendTime}
+// {"contestId","studentNumber","studentName","text",sendTime}
 func sendNews(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
 	}
 	response.Status = config.FAIL
 	result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).Create(&db.News{
-		IsManager:  false,
-		Identifier: info[1],
-		Text:       info[2],
-		SendTime:   info[3],
+		IsManager:     false,
+		StudentNumber: info[1],
+		StudentName:   info[2],
+		Text:          info[3],
+		SendTime:      info[4],
+		Status:        1,
 	})
 	if result.Error != nil {
 		logger.Errorln(result.Error)
@@ -242,7 +244,7 @@ func requestNewsInfo(info []string, c *gin.Context) {
 	response.Status = config.FAIL
 	response.News = make([]db.News, 0)
 	result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
-		Where(&db.News{IsManager: false, Identifier: info[1]}).
+		Where(&db.News{IsManager: false, StudentNumber: info[1]}).
 		Or(&db.News{IsManager: true}).
 		Find(&response.News)
 	if result.Error != nil {

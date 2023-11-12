@@ -34,7 +34,7 @@ func ManagerInit(loggerInstance *zap.SugaredLogger) {
 		"changeProblemConfig":     changeProblemConfig,
 		"downloadPlayerList":      downloadPlayerList,
 		"downloadSubmitCode":      downloadSubmitCode,
-		"sendNews":                sendNews,
+		"newsOperate":             newsOperate,
 		"requestUsersInfo":        requestUsersInfo,
 		"requestSubmitsInfo":      requestSubmitsInfo,
 		"requestNewsInfo":         requestNewsInfo,

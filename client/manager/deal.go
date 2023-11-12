@@ -698,20 +698,38 @@ func downloadSubmitCode(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","managerName","text","sendTime"}
-func sendNews(info []string, c *gin.Context) {
+// {"sendNews","contestId","managerName","0","text","sendTime"}
+// {"deleteNews","contestId","newId"}
+func newsOperate(info []string, c *gin.Context) {
 	var response struct {
 		Status string `json:"status"`
+		NewId  int    `json:"newId"`
 	}
 	response.Status = config.FAIL
-	news := db.News{IsManager: true, Identifier: info[1],
-		Text: info[2], SendTime: info[3]}
-	result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
-		Create(&news)
-	if result.Error != nil {
-		logger.Error(result.Error)
-	} else {
-		response.Status = config.SUCCEED
+	if info[0] == "sendNews" {
+		news := db.News{IsManager: true, ManagerName: info[2],
+			ResponseNewId: info[3], Text: info[4], SendTime: info[5]}
+		result := DB.Table(db.GetTableName(info[1], config.NEW_TABLE_SUFFIX)).
+			Create(&news)
+		if result.Error != nil {
+			logger.Error(result.Error)
+		} else {
+			response.Status = config.SUCCEED
+			response.NewId = news.ID
+		}
+	} else if info[0] == "deleteNews" {
+		newId, err := strconv.Atoi(info[2])
+		if err != nil {
+			logger.Errorln(err)
+		} else {
+			err = DB.Table(db.GetTableName(info[1], config.NEW_TABLE_SUFFIX)).
+				Where(&db.News{ID: newId}).Delete(&db.News{}).Error
+			if err != nil {
+				logger.Errorln(err)
+			} else {
+				response.Status = config.SUCCEED
+			}
+		}
 	}
 	c.JSON(http.StatusOK, response)
 }
@@ -786,8 +804,7 @@ func requestSubmitsInfo(info []string, c *gin.Context) {
 	c.JSON(http.StatusOK, response)
 }
 
-// {"contestId","news.id"}//每次获取20条数据,这里的id是前端数值最小的id
-// 第一次请求的话,users.id = lastId,否则就是一个数字
+// {"contestId","newId"}
 func requestNewsInfo(info []string, c *gin.Context) {
 	var response struct {
 		Status string    `json:"status"`
@@ -795,36 +812,18 @@ func requestNewsInfo(info []string, c *gin.Context) {
 	}
 	response.Status = config.FAIL
 	response.News = make([]db.News, 0)
-	var err error
-	var highId int
-	if info[1] == config.LAST_ID {
-		var news db.News
-		// 注意，如果还没有数据的话，这里返回的状态是fail
-		err = DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
-			Order("id desc").
-			First(&news).Error
-		if err == nil {
-			highId = news.ID + 1
-		}
-	} else {
-		// 这一步还可以顺便防范一下sql注入
-		highId, err = strconv.Atoi(info[1])
-	}
+	newId, err := strconv.Atoi(info[1])
 	if err != nil {
 		logger.Errorln(err)
+		c.JSON(http.StatusOK, response)
+		return
+	}
+	result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
+		Where("id > ?", newId).Find(&response.News)
+	if result.Error != nil {
+		logger.Errorln(result.Error)
 	} else {
-		lowId := highId - 21
-		if lowId < 0 {
-			lowId = 0
-		}
-		result := DB.Table(db.GetTableName(info[0], config.NEW_TABLE_SUFFIX)).
-			Where("id > ? AND id < ?", lowId, highId).
-			Find(&response.News)
-		if result.Error != nil {
-			logger.Errorln(result.Error)
-		} else {
-			response.Status = config.SUCCEED
-		}
+		response.Status = config.SUCCEED
 	}
 	c.JSON(http.StatusOK, response)
 }
